@@ -1,0 +1,11 @@
+# Datos personales y secretos: nunca al repo
+bip-respaldo-*.json
+*.local.json
+data/
+.env
+.env.*
+node_modules/
+.claude/
+
+# Material privado de una persona (nunca al repo público)
+private/

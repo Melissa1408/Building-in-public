@@ -1,0 +1,340 @@
+// Dashboard Building in Public. Los datos viven solo en el navegador (localStorage) y en el JSON que ella exporta.
+(function () {
+  const KEY = 'bip.v1';
+  const D = KB.defaults;
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  const $ = (s, el) => (el || document).querySelector(s);
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const today = () => iso(new Date());
+  const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const ESTADOS = ['borrador', 'editado', 'publicado'];
+  const TIPOS = ['Descubrimiento', 'Decisión', 'Estado'];
+
+  function defaults() {
+    return {
+      v: 1,
+      settings: { apiKey: '', model: 'claude-sonnet-5-5', openaiKey: '', lang: 'es-419', slots: JSON.parse(JSON.stringify(D.slots)) },
+      profile: { ...D.profile }, brief: D.brief, pilares: [...D.pilares],
+      audiences: JSON.parse(JSON.stringify(D.audiencias)), constraints: [...D.constraints],
+      memory: [], abiertos: D.abiertos.map((a) => ({ id: uid(), ...a, resuelto: false })),
+      captures: [], posts: [], feedback: [], ejemplos: ''
+    };
+  }
+  let S;
+  function load() {
+    try { const raw = localStorage.getItem(KEY); S = raw ? Object.assign(defaults(), JSON.parse(raw)) : defaults(); }
+    catch (e) { S = defaults(); }
+  }
+  let saveWarned = false;
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(S)); }
+    catch (e) { if (!saveWarned) { saveWarned = true; toast('No se pudo guardar en este navegador. Exporta un respaldo desde Memoria.'); } }
+  }
+
+  const ui = { tab: 'hoy', weekOffset: 0, monthOffset: 0, calView: 'semana', focus: null, busy: false, lastPostId: null, filtro: 'todos' };
+
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 3500);
+  }
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+    toast('Copiado. Pégalo en LinkedIn.');
+  }
+
+  // ---------- Fechas / calendario ----------
+  function weekStart(offset) {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const dow = (d.getDay() + 6) % 7; // lunes = 0
+    d.setDate(d.getDate() - dow + offset * 7); return d;
+  }
+  function weekSlots(offset) {
+    const start = weekStart(offset);
+    return S.settings.slots.slice().sort((a, b) => ((a.dow + 6) % 7) - ((b.dow + 6) % 7)).map((s) => {
+      const d = new Date(start); d.setDate(start.getDate() + ((s.dow + 6) % 7));
+      return { ...s, date: iso(d) };
+    });
+  }
+
+  // ---------- Alertas ----------
+  function alerts() {
+    const out = [];
+    if (!S.settings.apiKey) out.push({ t: 'warn', msg: 'Falta tu API key de Anthropic para generar posts.', go: 'memoria' });
+    const seq = S.posts.filter((p) => p.estado !== 'descartado').slice().sort((a, b) => (a.fechaPlan || a.created).localeCompare(b.fechaPlan || b.created));
+    for (let i = 1; i < seq.length; i++) {
+      if (seq[i].formato && seq[i].formato === seq[i - 1].formato) out.push({ t: 'warn', msg: `Rotación: dos posts seguidos con el formato "${seq[i].formato}".`, focus: seq[i].id });
+      if (seq[i].publico && seq[i].publico === seq[i - 1].publico) out.push({ t: 'info', msg: `Rotación: dos posts seguidos para "${seq[i].publico}".`, focus: seq[i].id });
+    }
+    S.posts.forEach((p) => (p.pendientes || []).filter((q) => !q.resuelto).forEach((q) =>
+      out.push({ t: 'ask', msg: `Falta dato en un post (${p.formato}): ${q.pregunta}`, focus: p.id })));
+    S.abiertos.filter((a) => !a.resuelto).forEach((a) => out.push({ t: 'ask', msg: `Pendiente con ella: ${a.pregunta}`, go: 'memoria' }));
+    const empty = weekSlots(0).filter((s) => s.date >= today() && !S.posts.some((p) => p.fechaPlan === s.date));
+    if (empty.length) out.push({ t: 'info', msg: `Esta semana tienes ${empty.length} hueco(s) sin post: ${empty.map((s) => DIAS[s.dow]).join(', ')}.`, go: 'calendario' });
+    return out;
+  }
+  function alertsHtml() {
+    const a = alerts();
+    if (!a.length) return '<p class="muted">Sin alertas. Todo en orden.</p>';
+    return '<ul class="alerts">' + a.map((x, i) => `<li class="al ${x.t}" data-act="alert" data-i="${i}">${esc(x.msg)}</li>`).join('') + '</ul>';
+  }
+
+  // ---------- Post card ----------
+  function opts(list, val) { return list.map((o) => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join(''); }
+  function rows(t) { return Math.min(22, Math.max(4, String(t || '').split('\n').length + Math.ceil(String(t || '').length / 90))); }
+
+  function postCard(p) {
+    const pend = (p.pendientes || []).map((q) => q.resuelto ? '' : `
+      <div class="pend"><strong>Falta: ${esc(q.dato)}</strong><div>${esc(q.pregunta)}</div>
+        <div class="row"><input data-q="${q.id}" placeholder="Su respuesta" />
+        <button class="btn sm" data-act="answer" data-id="${p.id}" data-q="${q.id}">Responder y regenerar</button></div></div>`).join('');
+    const mem = (p.memoriaSugerida || []).map((m, i) => m.added ? '' : `
+      <li><span>${esc(m.t)}</span> <button class="btn sm ghost" data-act="memadd" data-id="${p.id}" data-i="${i}">+ Memoria</button></li>`).join('');
+    return `<article class="card post" id="post-${p.id}" data-id="${p.id}">
+      <div class="badges"><span class="b ${p.estado}">${esc(p.estado)}</span><span class="b">${esc(p.formato || '—')}</span>
+        ${p.tipo ? `<span class="b">${esc(p.tipo)}</span>` : ''}${p.fechaPlan ? `<span class="b">📅 ${esc(p.fechaPlan)}</span>` : ''}</div>
+      <div class="grid4">
+        <label>Formato<select data-f="formato">${opts(KB.formatos, p.formato)}</select></label>
+        <label>Tipo<select data-f="tipo">${opts(TIPOS, p.tipo)}</select></label>
+        <label>Estado<select data-f="estado">${opts(ESTADOS, p.estado)}</select></label>
+        <label>Fecha planeada<input type="date" data-f="fechaPlan" value="${esc(p.fechaPlan || '')}"></label>
+      </div>
+      <label>Hook <span class="muted">(${esc(p.patronHook || 'sin patrón')})</span>
+        <textarea data-f="hook" rows="2">${esc(p.hook)}</textarea></label>
+      <label>Cuerpo <textarea data-f="cuerpo" rows="${rows(p.cuerpo)}">${esc(p.cuerpo)}</textarea></label>
+      <details><summary>Por qué este formato · problema · público</summary>
+        <p><strong>Por qué:</strong> ${esc(p.porque)}</p><p><strong>Problema:</strong> ${esc(p.problema)}</p>
+        <label>Público<input data-f="publico" value="${esc(p.publico)}"></label></details>
+      ${pend}
+      ${mem ? `<div class="memsug"><strong>Lo que aprendí de lo que contaste</strong><ul>${mem}</ul></div>` : ''}
+      <div class="row actions">
+        <button class="btn primary" data-act="copy" data-id="${p.id}">Copiar post</button>
+        <button class="btn" data-act="hook" data-id="${p.id}">Otro hook</button>
+        <button class="btn" data-act="publish" data-id="${p.id}">Marcar publicado</button>
+        <button class="btn ghost danger" data-act="del" data-id="${p.id}">Eliminar</button>
+      </div>
+      <div class="row"><input data-fb="${p.id}" placeholder="¿Qué corregiste y por qué? (para que no se repita)"><button class="btn sm" data-act="fb" data-id="${p.id}">Guardar corrección</button></div>
+    </article>`;
+  }
+
+  // ---------- Vistas ----------
+  function viewHoy() {
+    const last = S.posts.find((p) => p.id === ui.lastPostId);
+    return `<section class="card">
+      <h2>¿Qué aprendiste o decidiste hoy?</h2>
+      <p class="muted">Cuéntalo como se lo contarías a alguien. Dicta, sube un audio o escribe. Mientras más natural, mejor suena el post.</p>
+      <textarea id="txt" rows="7" placeholder="Hoy descubrí que… / Decidí usar X en vez de Y porque…"></textarea>
+      <div class="row wrap">
+        <button class="btn" data-act="dictate" id="dictBtn">🎙 Dictar</button>
+        <label class="btn file">Subir audio<input type="file" id="aud" accept="audio/*" hidden></label>
+        <select id="tipoSel"><option value="">Tipo: automático</option>${TIPOS.map((t) => `<option>${t}</option>`).join('')}</select>
+        <button class="btn primary" data-act="generate" id="genBtn">Generar post</button>
+      </div>
+      <p id="status" class="muted"></p>
+    </section>
+    ${last ? `<h3>Tu post</h3>${postCard(last)}` : ''}
+    <section class="card"><h3>Alertas</h3>${alertsHtml()}</section>`;
+  }
+
+  function viewSemana() {
+    const slots = weekSlots(ui.weekOffset);
+    const unplaced = S.posts.filter((p) => !p.fechaPlan && p.estado !== 'publicado');
+    const label = slots.length ? `${slots[0].date} → ${slots[slots.length - 1].date}` : '';
+    return `<div class="row between"><h2>Calendario semanal</h2>
+      <div class="row"><button class="btn sm" data-act="week" data-d="-1">←</button><span>${label}</span><button class="btn sm" data-act="week" data-d="1">→</button><button class="btn sm ghost" data-act="week" data-d="0">Hoy</button></div></div>
+      <div class="cal">${slots.map((s) => {
+        const ps = S.posts.filter((p) => p.fechaPlan === s.date);
+        return `<div class="slot" data-drop="${s.date}"><div class="slot-h"><strong>${DIAS[s.dow]}</strong> ${s.date.slice(5)}<span class="b">${esc(s.tipo)}</span></div>
+          ${ps.map((p) => `<div class="chip ${p.estado}" draggable="true" data-drag="${p.id}" data-act="open" data-id="${p.id}"><strong>${esc(p.formato)}</strong><br>${esc((p.hook || '').slice(0, 70))}</div>`).join('') || '<div class="muted empty">Hueco libre · arrastra un post aquí</div>'}
+        </div>`; }).join('')}</div>
+      <section class="card"><h3>Sin ubicar</h3>
+      ${unplaced.map((p) => `<div class="chip ${p.estado}" draggable="true" data-drag="${p.id}" data-act="open" data-id="${p.id}"><strong>${esc(p.formato)}</strong> · ${esc((p.hook || '').slice(0, 80))}</div>`).join('') || '<p class="muted">Nada pendiente de ubicar.</p>'}</section>
+      <section class="card"><h3>Alertas</h3>${alertsHtml()}</section>`;
+  }
+
+  function viewMes() {
+    const now = new Date(); const first = new Date(now.getFullYear(), now.getMonth() + ui.monthOffset, 1);
+    const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
+    const MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const slotDows = S.settings.slots.map((s) => s.dow);
+    let cells = '';
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i); const k = iso(d);
+      if (i >= 35 && d.getMonth() !== first.getMonth()) break;
+      const ps = S.posts.filter((x) => x.fechaPlan === k);
+      const slot = S.settings.slots.find((s) => s.dow === d.getDay());
+      cells += `<div class="cell ${d.getMonth() !== first.getMonth() ? 'out' : ''} ${slotDows.includes(d.getDay()) ? 'slotday' : ''} ${k === today() ? 'hoy' : ''}" data-drop="${k}">
+        <div class="dn">${d.getDate()}${slot ? `<span class="st">${esc(slot.tipo.split(' ')[0])}</span>` : ''}</div>
+        ${ps.map((x) => `<div class="chip ${x.estado}" draggable="true" data-drag="${x.id}" data-act="open" data-id="${x.id}">${esc(x.formato)}</div>`).join('')}</div>`;
+    }
+    const unplaced = S.posts.filter((x) => !x.fechaPlan && x.estado !== 'publicado');
+    return `<div class="row between"><h2>${MES[first.getMonth()]} ${first.getFullYear()}</h2>
+      <div class="row"><button class="btn sm" data-act="month" data-d="-1">←</button><button class="btn sm" data-act="month" data-d="1">→</button><button class="btn sm ghost" data-act="month" data-d="0">Hoy</button></div></div>
+      <div class="mcal">${['L','M','X','J','V','S','D'].map((x) => `<div class="dh">${x}</div>`).join('')}${cells}</div>
+      <p class="muted">Los días marcados son tus huecos de publicación. Arrastra un post a cualquier día.</p>
+      <section class="card"><h3>Sin ubicar</h3>${unplaced.map((x) => `<div class="chip ${x.estado}" draggable="true" data-drag="${x.id}" data-act="open" data-id="${x.id}"><strong>${esc(x.formato)}</strong> · ${esc((x.hook || '').slice(0, 80))}</div>`).join('') || '<p class="muted">Nada pendiente de ubicar.</p>'}</section>
+      <section class="card"><h3>Alertas</h3>${alertsHtml()}</section>`;
+  }
+  function viewCalendario() {
+    const tog = `<div class="row"><button class="btn sm ${ui.calView === 'semana' ? 'primary' : ''}" data-act="calview" data-v="semana">Semana</button><button class="btn sm ${ui.calView === 'mes' ? 'primary' : ''}" data-act="calview" data-v="mes">Mes</button></div>`;
+    return tog + (ui.calView === 'mes' ? viewMes() : viewSemana());
+  }
+
+  function viewPosts() {
+    let ps = S.posts.slice().reverse();
+    if (ui.filtro !== 'todos') ps = ps.filter((p) => p.estado === ui.filtro);
+    if (ui.focus) ps.sort((a, b) => (b.id === ui.focus) - (a.id === ui.focus));
+    return `<div class="row between"><h2>Posts</h2><select data-act="filtro">${['todos', ...ESTADOS].map((e) => `<option ${e === ui.filtro ? 'selected' : ''}>${e}</option>`).join('')}</select></div>
+      ${ps.map(postCard).join('') || '<p class="muted">Todavía no hay posts. Empieza en Hoy.</p>'}`;
+  }
+
+  function viewMemoria() {
+    const p = S.profile, st = S.settings;
+    const f = (k, l, ta) => `<label>${l}${ta ? `<textarea data-p="${k}" rows="2">${esc(p[k])}</textarea>` : `<input data-p="${k}" value="${esc(p[k])}">`}</label>`;
+    return `<h2>Memoria${p.nombre ? ' de ' + esc(p.nombre) : ''}</h2>
+    <p class="muted">Aquí vive lo que el sistema sabe de ella. Cada vez que cuenta algo, esta memoria crece y los posts suenan más a ella.</p>
+    <section class="card"><h3>Perfil</h3><div class="grid2">${f('nombre', 'Nombre')}${f('rol', 'Rol')}${f('nivel', 'Nivel de experiencia')}${f('etapa', 'Etapa del proyecto')}</div>
+      ${f('proyecto', 'Proyecto', 1)}${f('tono', 'Voz y tono (cómo habla)', 1)}${f('noEs', 'Qué NO es (para no exagerar su expertise)', 1)}
+      <label>Brief: por qué construye esto, su tesis, sus miedos, su visión de éxito<textarea data-k="brief" rows="4">${esc(S.brief)}</textarea></label>
+      <label>Posts aprobados (ejemplos de calidad y de voz; pega los que ya le gustaron)<textarea data-k="ejemplos" rows="6">${esc(S.ejemplos)}</textarea></label>
+      <label>Pilares (uno por línea)<textarea data-k="pilares" rows="2">${esc(S.pilares.join('\n'))}</textarea></label>
+      <label>Restricciones de contenido (una por línea)<textarea data-k="constraints" rows="4">${esc(S.constraints.join('\n'))}</textarea></label></section>
+    <section class="card"><h3>Público</h3>${S.audiences.map((a, i) => `<div class="grid3">
+      <input data-a="${i}.nombre" value="${esc(a.nombre)}"><input data-a="${i}.busca" value="${esc(a.busca)}" placeholder="Qué busca"><input data-a="${i}.evitar" value="${esc(a.evitar)}" placeholder="Qué evitar"></div>`).join('')}</section>
+    <section class="card"><h3>Datos abiertos (pendientes con ella)</h3>
+      ${S.abiertos.map((a) => `<div class="pend ${a.resuelto ? 'done' : ''}"><strong>${esc(a.dato)}</strong><div>${esc(a.pregunta)}</div>
+        ${a.resuelto ? `<div class="muted">Respuesta: ${esc(a.respuesta)}</div>` : `<div class="row"><input data-ab="${a.id}" placeholder="Respuesta"><button class="btn sm" data-act="abre" data-id="${a.id}">Guardar</button></div>`}</div>`).join('') || '<p class="muted">Nada abierto.</p>'}</section>
+    <section class="card"><h3>Cerebro (${S.memory.length} notas · ${S.captures.length} transcripciones)</h3>
+      <div class="row"><input id="memNew" placeholder="Agregar un dato sobre su proyecto, stack o forma de hablar"><button class="btn sm" data-act="memnew">Agregar</button></div>
+      <ul class="mem">${S.memory.slice().reverse().map((m) => `<li><span>${esc(m.texto)}</span><button class="btn sm ghost danger" data-act="memdel" data-id="${m.id}">✕</button></li>`).join('')}</ul></section>
+    <section class="card"><h3>Correcciones que ella hizo (${S.feedback.length})</h3>
+      <ul class="mem">${S.feedback.slice().reverse().map((m) => `<li><span>${esc(m.texto)}</span><button class="btn sm ghost danger" data-act="fbdel" data-id="${m.id}">✕</button></li>`).join('')}</ul></section>
+    <section class="card"><h3>Ajustes</h3><div class="grid2">
+      <label>API key de Anthropic<input type="password" data-s="apiKey" value="${esc(st.apiKey)}" placeholder="sk-ant-…" autocomplete="off"></label>
+      <label>Modelo<input data-s="model" value="${esc(st.model)}"></label>
+      <label>Clave OpenAI (solo para subir audio, opcional)<input type="password" data-s="openaiKey" value="${esc(st.openaiKey)}" autocomplete="off"></label>
+      <label>Idioma de dictado<select data-s="lang">${['es-419', 'es-MX', 'es-ES', 'es-CO', 'es-AR', 'en-US'].map((l) => `<option ${l === st.lang ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <p class="muted">Las claves se guardan solo en este navegador y van directo a Anthropic/OpenAI. No uses este dashboard en un computador compartido.</p>
+      <h4>Cadencia (3 por semana)</h4>${st.slots.map((s, i) => `<div class="row"><select data-sl="${i}.dow">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === s.dow ? 'selected' : ''}>${DIAS[d]}</option>`).join('')}</select><input data-sl="${i}.tipo" value="${esc(s.tipo)}"></div>`).join('')}
+      <div class="row wrap"><button class="btn" data-act="export">Exportar respaldo</button><label class="btn file">Importar respaldo<input type="file" id="imp" accept="application/json" hidden></label><button class="btn ghost danger" data-act="reset">Borrar todo</button></div>
+      <p class="muted">Sus datos no están en GitHub: exporta un respaldo de vez en cuando.</p></section>`;
+  }
+
+  function render() {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === ui.tab));
+    const v = { hoy: viewHoy, calendario: viewCalendario, posts: viewPosts, memoria: viewMemoria }[ui.tab]();
+    // Conserva el texto que está escribiendo si se re-renderiza.
+    const draft = $('#txt') ? $('#txt').value : '';
+    $('#view').innerHTML = v;
+    if (draft && $('#txt')) $('#txt').value = draft;
+    if (ui.focus) { const el = $('#post-' + ui.focus); if (el) el.scrollIntoView({ block: 'start' }); ui.focus = null; }
+  }
+  function go(tab, focus) { ui.tab = tab; ui.focus = focus || null; render(); }
+
+  // ---------- Generación ----------
+  function applyResult(p, r) {
+    p.formato = KB.formatos.includes(r.formato) ? r.formato : (KB.formatos.find((f) => f.toLowerCase().startsWith(String(r.formato || '').toLowerCase())) || KB.formatos[0]);
+    p.tipo = TIPOS.includes(r.tipo) ? r.tipo : 'Descubrimiento';
+    p.porque = r.porque || ''; p.problema = r.problema || ''; p.publico = r.publico || '';
+    p.patronHook = r.patron_hook || ''; p.hook = r.hook || ''; p.cuerpo = r.cuerpo || '';
+    p.completo = r.completo !== false;
+    p.pendientes = (r.pendientes || []).map((q) => ({ id: uid(), dato: q.dato, pregunta: q.pregunta, resuelto: false }));
+    p.memoriaSugerida = (r.memoria || []).map((t) => ({ t, added: false }));
+    p.original = p.hook + '\n\n' + p.cuerpo;
+  }
+  function setStatus(m) { const s = $('#status'); if (s) s.textContent = m; }
+  async function generate() {
+    const txt = ($('#txt').value || '').trim();
+    if (txt.length < 30) return toast('Cuéntame un poco más (al menos un par de frases).');
+    if (ui.busy) return; ui.busy = true; $('#genBtn').disabled = true; setStatus('Generando… (unos segundos)');
+    try {
+      const cap = { id: uid(), fecha: today(), texto: txt };
+      const r = await AI.generatePost(S, txt, $('#tipoSel').value);
+      const p = { id: uid(), captureId: cap.id, estado: 'borrador', created: new Date().toISOString(), fechaPlan: '' };
+      applyResult(p, r);
+      S.captures.push(cap); S.posts.push(p); save();
+      ui.lastPostId = p.id; $('#txt').value = ''; ui.busy = false; render();
+      toast(p.pendientes.length ? 'Listo, pero faltan datos. Revisa las preguntas.' : 'Post listo.');
+    } catch (e) { ui.busy = false; setStatus(''); toast(e.message); const b = $('#genBtn'); if (b) b.disabled = false; }
+  }
+  async function regenerate(p, extra) {
+    const cap = S.captures.find((c) => c.id === p.captureId);
+    if (cap) cap.texto += '\n\n' + extra;
+    toast('Regenerando con tu respuesta…');
+    const r = await AI.generatePost(S, cap ? cap.texto : extra, p.tipo);
+    applyResult(p, r); save(); render(); toast('Post actualizado.');
+  }
+
+  // ---------- Dictado ----------
+  let rec = null;
+  function dictate() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return toast('Tu navegador no soporta dictado. Usa Chrome/Edge o sube un audio.');
+    const btn = $('#dictBtn');
+    if (rec) { rec.stop(); return; }
+    rec = new SR(); rec.lang = S.settings.lang; rec.continuous = true; rec.interimResults = false;
+    rec.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) { const t = $('#txt'); t.value += (t.value && !/\s$/.test(t.value) ? ' ' : '') + e.results[i][0].transcript.trim(); } };
+    rec.onend = () => { rec = null; const b = $('#dictBtn'); if (b) b.textContent = '🎙 Dictar'; };
+    rec.onerror = (e) => toast('Dictado: ' + (e.error === 'not-allowed' ? 'permite el micrófono en el navegador.' : e.error));
+    rec.start(); btn.textContent = '⏹ Detener';
+  }
+
+  // ---------- Acciones (delegación) ----------
+  const post = (id) => S.posts.find((p) => p.id === id);
+  document.addEventListener('click', async (e) => {
+    const el = e.target.closest('[data-act],[data-tab]'); if (!el) return;
+    if (el.dataset.tab) return go(el.dataset.tab);
+    const a = el.dataset.act, id = el.dataset.id, p = id && post(id);
+    try {
+      if (a === 'generate') return generate();
+      if (a === 'dictate') return dictate();
+      if (a === 'copy') return copy(p.hook + '\n\n' + p.cuerpo);
+      if (a === 'publish') { p.estado = 'publicado'; p.fechaPub = today(); save(); return render(); }
+      if (a === 'del') { if (confirm('¿Eliminar este post?')) { S.posts = S.posts.filter((x) => x.id !== id); save(); render(); } return; }
+      if (a === 'hook') { toast('Buscando otro hook…'); const r = await AI.newHook(S, p); p.hook = r.hook; p.patronHook = r.patron_hook; save(); return render(); }
+      if (a === 'answer') {
+        const q = p.pendientes.find((x) => x.id === el.dataset.q), v = $(`[data-q="${q.id}"]`).value.trim();
+        if (!v) return toast('Escribe la respuesta primero.');
+        q.resuelto = true; return regenerate(p, `[Respuesta a "${q.pregunta}"]: ${v}`);
+      }
+      if (a === 'memadd') { const m = p.memoriaSugerida[+el.dataset.i]; m.added = true; S.memory.push({ id: uid(), fecha: today(), texto: m.t }); save(); return render(); }
+      if (a === 'fb') { const i = $(`[data-fb="${id}"]`), v = i.value.trim(); if (!v) return; S.feedback.push({ id: uid(), fecha: today(), texto: `(${p.formato}) ${v}` }); p.estado = p.estado === 'borrador' ? 'editado' : p.estado; i.value = ''; save(); return toast('Guardado. No repetiré ese error.'); }
+      if (a === 'open') return go('posts', id);
+      if (a === 'calview') { ui.calView = el.dataset.v; return render(); }
+      if (a === 'month') { ui.monthOffset = el.dataset.d === '0' ? 0 : ui.monthOffset + +el.dataset.d; return render(); }
+      if (a === 'week') { ui.weekOffset = el.dataset.d === '0' ? 0 : ui.weekOffset + +el.dataset.d; return render(); }
+      if (a === 'alert') { const x = alerts()[+el.dataset.i]; if (x.focus) go('posts', x.focus); else if (x.go) go(x.go); return; }
+      if (a === 'memnew') { const i = $('#memNew'), v = i.value.trim(); if (v) { S.memory.push({ id: uid(), fecha: today(), texto: v }); save(); render(); } return; }
+      if (a === 'memdel') { S.memory = S.memory.filter((m) => m.id !== id); save(); return render(); }
+      if (a === 'fbdel') { S.feedback = S.feedback.filter((m) => m.id !== id); save(); return render(); }
+      if (a === 'abre') { const ab = S.abiertos.find((x) => x.id === id), v = $(`[data-ab="${id}"]`).value.trim(); if (!v) return; ab.resuelto = true; ab.respuesta = v; S.memory.push({ id: uid(), fecha: today(), texto: `${ab.dato}: ${v}` }); save(); return render(); }
+      if (a === 'export') { const b = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }); const l = document.createElement('a'); l.href = URL.createObjectURL(b); l.download = `bip-respaldo-${today()}.json`; l.click(); return; }
+      if (a === 'reset') { if (confirm('Esto borra todo (memoria, posts y claves) de este navegador. ¿Seguro?')) { localStorage.removeItem(KEY); load(); render(); } return; }
+    } catch (err) { toast(err.message); }
+  });
+
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.act === 'filtro') { ui.filtro = t.value; return render(); }
+    if (t.id === 'aud') { const f = t.files[0]; if (!f) return; setStatus('Transcribiendo audio…'); AI.transcribe(S, f).then((txt) => { const box = $('#txt'); box.value += (box.value ? '\n' : '') + txt; setStatus(''); }).catch((er) => { setStatus(''); toast(er.message); }); return; }
+    if (t.id === 'imp') { const f = t.files[0]; if (!f) return; f.text().then((s) => { try { S = Object.assign(defaults(), { settings: S.settings }, JSON.parse(s)); save(); render(); toast('Respaldo importado.'); } catch (er) { toast('Ese archivo no es un respaldo válido.'); } }); return; }
+    const card = t.closest('.post');
+    if (card && t.dataset.f) { const p = post(card.dataset.id); p[t.dataset.f] = t.value; if (['hook', 'cuerpo'].includes(t.dataset.f) && p.estado === 'borrador' && (p.hook + '\n\n' + p.cuerpo) !== p.original) p.estado = 'editado'; save(); if (['estado', 'fechaPlan', 'formato'].includes(t.dataset.f)) render(); return; }
+    if (t.dataset.p) { S.profile[t.dataset.p] = t.value; return save(); }
+    if (t.dataset.k) { S[t.dataset.k] = ['pilares', 'constraints'].includes(t.dataset.k) ? t.value.split('\n').map((x) => x.trim()).filter(Boolean) : t.value; return save(); }
+    if (t.dataset.a) { const [i, k] = t.dataset.a.split('.'); S.audiences[+i][k] = t.value; return save(); }
+    if (t.dataset.s) { S.settings[t.dataset.s] = t.value.trim(); return save(); }
+    if (t.dataset.sl) { const [i, k] = t.dataset.sl.split('.'); S.settings.slots[+i][k] = k === 'dow' ? +t.value : t.value; return save(); }
+  });
+
+  // Arrastrar y soltar en el calendario
+  document.addEventListener('dragstart', (e) => { const c = e.target.closest('[data-drag]'); if (c) e.dataTransfer.setData('text/plain', c.dataset.drag); });
+  document.addEventListener('dragover', (e) => { if (e.target.closest('[data-drop]')) e.preventDefault(); });
+  document.addEventListener('drop', (e) => {
+    const s = e.target.closest('[data-drop]'); if (!s) return; e.preventDefault();
+    const p = post(e.dataTransfer.getData('text/plain')); if (!p) return; p.fechaPlan = s.dataset.drop; save(); render();
+  });
+
+  load(); render();
+})();
