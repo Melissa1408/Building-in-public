@@ -1,6 +1,6 @@
 # Despliegue completo
 
-Guía para dejar funcionando todo: página web (GitHub Pages) + base de datos (Google Sheets) + servidor (Google Apps Script). Costo: **gratis**, salvo lo que gaste la API de Anthropic (el límite diario lo controla).
+Guía para dejar funcionando todo: página web (GitHub Pages) + base de datos (Google Sheetscode.gs) + servidor (Google Apps Script). Costo: **gratis**, salvo lo que gaste la API de Anthropic (el límite diario lo controla).
 
 ## Cómo encaja todo
 
