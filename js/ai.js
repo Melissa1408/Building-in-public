@@ -1,6 +1,5 @@
-// Llamadas a Claude (directo desde el navegador con la clave de la usuaria) y transcripción opcional.
+// Arma el prompt (skill + memoria) y lo envía al backend, que guarda la clave y aplica el límite diario.
 (function () {
-  const API = 'https://api.anthropic.com/v1/messages';
 
   const SCHEMA = `Responde SOLO con un objeto JSON válido (sin texto antes ni después, sin bloque de código) con esta forma exacta:
 {
@@ -82,25 +81,8 @@ ${SCHEMA}`;
   }
 
   async function call(S, system, user, maxTokens) {
-    if (!S.settings.apiKey) throw new Error('Falta tu API key de Anthropic (pestaña Memoria → Ajustes).');
-    let res;
-    try {
-      res = await fetch(API, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': S.settings.apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({ model: S.settings.model, max_tokens: maxTokens || 3000, system, messages: [{ role: 'user', content: user }] })
-      });
-    } catch (e) {
-      throw new Error('No se pudo conectar con la API (¿sin internet?).');
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data.error && data.error.message) || 'Error de la API (' + res.status + ')');
-    return (data.content || []).map((b) => b.text || '').join('');
+    const r = await API.call('ai', { system, user, maxTokens: maxTokens || 3000 });
+    return r.text;
   }
 
   function parseJson(text) {
@@ -120,15 +102,14 @@ ${SCHEMA}`;
     return parseJson(await call(S, buildSystem(S), user, 600));
   }
 
-  // Audio → texto con Whisper (opcional, requiere clave de OpenAI). El dictado en vivo usa SpeechRecognition del navegador.
+  // Audio → texto en el servidor (Whisper). El dictado en vivo usa el navegador y no gasta cupo.
+  function toBase64(file) {
+    return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = () => no(new Error('No se pudo leer el audio.')); r.readAsDataURL(file); });
+  }
   async function transcribe(S, file) {
-    if (!S.settings.openaiKey) throw new Error('Para subir audio necesitas una clave de OpenAI (Memoria → Ajustes). El botón Dictar no la necesita.');
-    const fd = new FormData();
-    fd.append('file', file); fd.append('model', 'whisper-1'); fd.append('language', 'es');
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + S.settings.openaiKey }, body: fd });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data.error && data.error.message) || 'Error de transcripción (' + res.status + ')');
-    return data.text || '';
+    if (file.size > 10 * 1024 * 1024) throw new Error('El audio pesa más de 10 MB. Usa uno más corto o el botón Dictar.');
+    const r = await API.call('transcribe', { audio: await toBase64(file), mime: file.type || 'audio/webm' });
+    return r.text || '';
   }
 
   window.AI = { generatePost, newHook, transcribe };

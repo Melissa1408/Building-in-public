@@ -10,23 +10,19 @@ Web estática (HTML + JS, sin build ni servidor) para convertir lo que una perso
 - **Posts**: borrador → editado → publicado. Cada corrección que ella guarda alimenta el feedback para no repetir errores.
 - **Memoria**: perfil, público, restricciones, datos abiertos, notas del "cerebro" y ajustes. Crece con cada captura.
 
-## Privacidad (importante)
-Este repo **no contiene datos personales**: todo (perfil, transcripciones, posts, claves) vive en el `localStorage` de su navegador. Para no perderlo: **Memoria → Exportar respaldo**. El respaldo es un JSON que **no debe subirse a git** (ya está ignorado).
+## Cómo funciona
+Página estática (GitHub Pages) + **Google Sheets como base de datos** + **Apps Script como servidor**. Login por correo: solo entran los correos de la pestaña *Usuarios*. La IA corre en el servidor (las claves nunca están en la página) con un límite de **2 generaciones por usuario y día**, pensado para que otras personas prueben el repo.
 
-## Uso
-1. Abrir la URL de GitHub Pages (o `node tools/serve.js` → http://localhost:5173).
-2. Memoria → Ajustes → pegar su **API key de Anthropic** (se guarda solo en su navegador).
-3. Completar Perfil y Brief en Memoria (mientras más completo, mejor suena).
-4. Dictado en vivo: Chrome o Edge. Subir audio: requiere clave de OpenAI (opcional).
+**Despliegue paso a paso: [DESPLIEGUE.md](DESPLIEGUE.md).** Variables de entorno: [.env.example](.env.example).
+
+## Privacidad
+Este repo **no contiene datos personales ni claves**. Los datos de cada usuario viven en tu Google Sheet (privado). `.env` y `private/` están en `.gitignore`.
 
 ## Datos de una persona
 Perfil, reglas y ejemplos aprobados se cargan con **Memoria → Importar respaldo** (JSON). Van en `private/` (ignorado por git) y nunca se suben.
-
-## Publicar en GitHub Pages (opcional)
-Settings → Pages → Source: *Deploy from a branch* → `main` / `(root)`.
 
 ## Actualizar la skill
 La fuente de verdad es `skill/`. Tras editarla: `node tools/build-knowledge.js` regenera `js/knowledge.js`.
 
 ## Estructura
-`index.html` · `css/` · `js/app.js` (UI y estado) · `js/ai.js` (prompt y llamadas) · `js/knowledge.js` (generado) · `skill/` · `docs/` · `tools/`
+`index.html` · `css/` · `js/app.js` (UI, login, sincronización) · `js/api.js` (cliente del servidor) · `js/ai.js` (prompt) · `js/config.js` (URL del servidor) · `js/knowledge.js` (generado) · `apps-script/` (servidor + pruebas) · `skill/` · `docs/` · `tools/`

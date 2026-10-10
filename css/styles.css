@@ -52,3 +52,9 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--mu)}
 .dn{font-size:12px;display:flex;justify-content:space-between;color:var(--mu)}.st{font-size:10px;color:var(--ac)}
 .cell .chip{padding:2px 6px;font-size:11px;margin:3px 0}
 @media (max-width:700px){.cell{min-height:60px}.st{display:none}}
+.userbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.userbar .email{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sync{font-size:12px;color:var(--mu)}.sync.ok{color:var(--ok)}.sync.error{color:var(--bad)}
+.login{max-width:420px;margin:48px auto}
+[hidden]{display:none!important}
+code{background:var(--bg);padding:1px 5px;border-radius:4px}

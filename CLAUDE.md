@@ -1,13 +1,15 @@
 # Building in Public · Dashboard
 
-Web estática (vanilla JS, sin build). Genera posts de LinkedIn a partir de lo que la usuaria aprende. Ver `README.md` y `docs/spec.md`.
+Web estática (vanilla JS, sin build) + backend en Google Apps Script (`apps-script/Code.gs`) con Google Sheets como base de datos. Genera posts de LinkedIn a partir de lo que la usuaria aprende. Ver `README.md` y `docs/spec.md`.
 
 ## Reglas
-- **Cero datos personales en el repo.** Perfil, transcripciones, posts y claves viven en `localStorage` del navegador. Nunca commitear respaldos (`bip-respaldo-*.json`), `.env` ni claves.
+- **Cero datos personales ni claves en el repo.** Los datos viven en el Google Sheet (pestañas Usuarios/Uso/Datos); las claves de IA, en Propiedades del script. Nunca commitear `.env`, `apps-script/Setup.local.gs`, respaldos ni `private/`.
+- Login solo por correo (pestaña Usuarios). Límite de IA por usuario y día en el servidor (`DAILY_AI_LIMIT`, 2 por defecto); no moverlo al cliente.
+- Tras tocar `apps-script/Code.gs`: correr `node apps-script/test/test.js` y publicar nueva versión de la Web App (ver DESPLIEGUE.md).
 - `js/knowledge.js` es **generado** desde `skill/`. No editarlo a mano; correr `node tools/build-knowledge.js`.
 - Reglas de redacción (en `skill/SKILL.md`): no inventar datos; cuerpo ~80% textual y hook ~20% reescrito; no vender el producto; sin enlaces en el cuerpo.
 - Cadencia por defecto: 3 posts por semana (editable en Memoria → Ajustes).
 - `private/` está en .gitignore (datos de una persona concreta): nunca commitear.
 - Publicación manual (copiar y pegar). No integrar la API de LinkedIn.
 - UI en español. Probar con `node tools/serve.js` (los scripts no corren desde `file://` en la vista previa).
-- Nunca enviar la API key a ningún host que no sea api.anthropic.com / api.openai.com.
+- La página nunca maneja claves de IA; solo habla con la URL de la Web App (`js/config.js`).

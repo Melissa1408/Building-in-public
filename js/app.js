@@ -1,6 +1,5 @@
-// Dashboard Building in Public. Los datos viven solo en el navegador (localStorage) y en el JSON que ella exporta.
+// Dashboard Building in Public. Login por correo; los datos viven en Google Sheets (vía Apps Script) y la IA corre en el servidor.
 (function () {
-  const KEY = 'bip.v1';
   const D = KB.defaults;
   const uid = () => Math.random().toString(36).slice(2, 10);
   const $ = (s, el) => (el || document).querySelector(s);
@@ -13,26 +12,117 @@
 
   function defaults() {
     return {
-      v: 1,
-      settings: { apiKey: '', model: 'claude-sonnet-5-5', openaiKey: '', lang: 'es-419', slots: JSON.parse(JSON.stringify(D.slots)) },
+      v: 2,
+      settings: { lang: 'es-419', slots: JSON.parse(JSON.stringify(D.slots)) },
       profile: { ...D.profile }, brief: D.brief, pilares: [...D.pilares],
       audiences: JSON.parse(JSON.stringify(D.audiencias)), constraints: [...D.constraints],
       memory: [], abiertos: D.abiertos.map((a) => ({ id: uid(), ...a, resuelto: false })),
       captures: [], posts: [], feedback: [], ejemplos: ''
     };
   }
-  let S;
-  function load() {
-    try { const raw = localStorage.getItem(KEY); S = raw ? Object.assign(defaults(), JSON.parse(raw)) : defaults(); }
-    catch (e) { S = defaults(); }
+  let S = defaults();
+  let session = null;
+  const SKEY = 'bip.session', LEGACY = 'bip.v1';
+  const LISTS = ['memory', 'captures', 'posts', 'feedback', 'abiertos'];
+  let lastSent = {};
+
+  function ensureIds() { LISTS.forEach((c) => S[c].forEach((x) => { if (!x.id) x.id = uid(); })); }
+  function packState() {
+    const out = {};
+    out.doc = [
+      { id: 'profile', json: JSON.stringify(S.profile) },
+      { id: 'config', json: JSON.stringify({ brief: S.brief, pilares: S.pilares, constraints: S.constraints, audiences: S.audiences, ejemplos: S.ejemplos, slots: S.settings.slots, lang: S.settings.lang }) }
+    ];
+    LISTS.forEach((c) => { out[c] = S[c].map((x) => ({ id: x.id, json: JSON.stringify(x) })); });
+    return out;
   }
-  let saveWarned = false;
+  function unpack(cols) {
+    const s = defaults();
+    (cols.doc || []).forEach((d) => {
+      try {
+        const v = JSON.parse(d.json);
+        if (d.id === 'profile') s.profile = Object.assign(s.profile, v);
+        if (d.id === 'config') {
+          ['brief', 'pilares', 'constraints', 'audiences', 'ejemplos'].forEach((k) => { if (v[k] != null) s[k] = v[k]; });
+          if (v.slots) s.settings.slots = v.slots;
+          if (v.lang) s.settings.lang = v.lang;
+        }
+      } catch (e) { /* fila dañada: se ignora */ }
+    });
+    LISTS.forEach((c) => { s[c] = (cols[c] || []).map((r) => { try { return JSON.parse(r.json); } catch (e) { return null; } }).filter(Boolean); });
+    return s;
+  }
+  function markSynced() { lastSent = {}; const cur = packState(); Object.keys(cur).forEach((c) => { lastSent[c] = JSON.stringify(cur[c]); }); }
+
+  let syncTimer = null, syncing = false, again = false;
+  function paintSync() {
+    const el = $('#sync'); if (!el) return;
+    const m = { idle: '', pending: 'Guardando…', saving: 'Guardando…', ok: '☁ Guardado en Google Sheets', error: '⚠ Sin guardar · reintentar' };
+    el.textContent = m[ui.sync] || ''; el.className = 'sync ' + ui.sync;
+  }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(S)); }
-    catch (e) { if (!saveWarned) { saveWarned = true; toast('No se pudo guardar en este navegador. Exporta un respaldo desde Memoria.'); } }
+    if (!session || !ui.ready) return;
+    ui.sync = 'pending'; paintSync(); clearTimeout(syncTimer); syncTimer = setTimeout(doSync, 1200);
+  }
+  async function doSync() {
+    if (!session || !ui.ready) return;
+    clearTimeout(syncTimer);
+    if (syncing) { again = true; return; }
+    const cur = packState(), changes = {}, sers = {};
+    Object.keys(cur).forEach((c) => { const ser = JSON.stringify(cur[c]); if (ser !== lastSent[c]) { changes[c] = cur[c]; sers[c] = ser; } });
+    if (!Object.keys(changes).length) { ui.sync = 'ok'; return paintSync(); }
+    syncing = true; ui.sync = 'saving'; paintSync();
+    try { await API.call('save', { changes }); Object.assign(lastSent, sers); ui.sync = 'ok'; }
+    catch (e) { ui.sync = 'error'; handleErr(e); }
+    syncing = false; paintSync();
+    if (again) { again = false; save(); }
+  }
+  window.addEventListener('beforeunload', (e) => { if (ui.sync === 'pending' || ui.sync === 'saving') { e.preventDefault(); e.returnValue = ''; } });
+
+  async function pullState() {
+    const d = await API.call('load');
+    ui.usage = d.usage; session.nombre = d.user.nombre;
+    if (d.empty) {
+      S = defaults(); if (d.user.nombre) S.profile.nombre = d.user.nombre;
+      lastSent = {}; ui.ready = true; save();       // cuenta nueva: sube la base inicial
+    } else { S = unpack(d.collections); ensureIds(); markSynced(); ui.ready = true; }
+  }
+  async function bootstrap() {
+    try { session = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { session = null; }
+    if (session && !(window.BIP_CONFIG || {}).API_URL) session = null;
+    if (!session) return render();
+    API.token = session.token; ui.ready = false; ui.bootError = ''; render();
+    try { await pullState(); } catch (e) { if (e.code === 'auth') { logout(true); toast(e.message); return; } ui.bootError = e.message; }
+    render();
+  }
+  async function login() {
+    const email = ($('#lgEmail').value || '').trim(), codigo = ($('#lgCode').value || '').trim(), msg = $('#lgMsg'), btn = $('#lgBtn');
+    if (!email) { msg.textContent = 'Escribe tu correo.'; return; }
+    msg.textContent = 'Verificando…'; btn.disabled = true; API.token = '';
+    try {
+      const r = await API.call('login', { email, codigo });
+      session = { token: r.token, email: r.user.email, nombre: r.user.nombre }; API.token = r.token; ui.usage = r.usage; ui.ready = false;
+      msg.textContent = 'Cargando tus datos…';
+      try { await pullState(); } catch (e) { session = null; API.token = ''; throw e; }
+      try { localStorage.setItem(SKEY, JSON.stringify(session)); } catch (e) { /* sin sesión persistente */ }
+      ui.tab = 'hoy'; render();
+    } catch (e) {
+      msg.textContent = e.message; btn.disabled = false;
+      if (e.code === 'code') $('#lgCodeWrap').hidden = false;
+    }
+  }
+  async function logout(silent) {
+    if (!silent && (ui.sync === 'pending' || ui.sync === 'saving')) await doSync();
+    session = null; API.token = ''; ui.ready = false; ui.usage = null; ui.sync = 'idle'; ui.lastPostId = null; S = defaults(); lastSent = {};
+    try { localStorage.removeItem(SKEY); } catch (e) { /* nada */ }
+    render();
+  }
+  function handleErr(err) {
+    if (err && err.code === 'auth') { logout(true); toast(err.message); return; }
+    toast(err && err.message ? err.message : 'Ocurrió un error.');
   }
 
-  const ui = { tab: 'hoy', weekOffset: 0, monthOffset: 0, calView: 'semana', focus: null, busy: false, lastPostId: null, filtro: 'todos' };
+  const ui = { ready: false, bootError: '', usage: null, sync: 'idle', tab: 'hoy', weekOffset: 0, monthOffset: 0, calView: 'semana', focus: null, busy: false, lastPostId: null, filtro: 'todos' };
 
   function toast(msg) {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -61,7 +151,6 @@
   // ---------- Alertas ----------
   function alerts() {
     const out = [];
-    if (!S.settings.apiKey) out.push({ t: 'warn', msg: 'Falta tu API key de Anthropic para generar posts.', go: 'memoria' });
     const seq = S.posts.filter((p) => p.estado !== 'descartado').slice().sort((a, b) => (a.fechaPlan || a.created).localeCompare(b.fechaPlan || b.created));
     for (let i = 1; i < seq.length; i++) {
       if (seq[i].formato && seq[i].formato === seq[i - 1].formato) out.push({ t: 'warn', msg: `Rotación: dos posts seguidos con el formato "${seq[i].formato}".`, focus: seq[i].id });
@@ -119,6 +208,28 @@
   }
 
   // ---------- Vistas ----------
+  function viewLogin() {
+    if (!(window.BIP_CONFIG || {}).API_URL) return `<section class="card login"><h2>Falta configurar el servidor</h2>
+      <p>Esta página necesita la URL de tu Web App de Apps Script. Ábrela en <code>js/config.js</code> y pégala en <code>API_URL</code>. Los pasos están en <strong>DESPLIEGUE.md</strong>.</p></section>`;
+    return `<section class="card login"><h2>Entrar</h2>
+      <p class="muted">Escribe el correo con el que te dieron acceso. Si tu correo no está en la lista, no podrás generar posts.</p>
+      <label>Correo<input id="lgEmail" type="email" autocomplete="email" placeholder="tu@correo.com"></label>
+      <label id="lgCodeWrap" hidden>Código de acceso<input id="lgCode" type="password" autocomplete="off"></label>
+      <div class="row"><button class="btn primary" id="lgBtn" data-act="login">Entrar</button></div>
+      <p id="lgMsg" class="muted"></p></section>`;
+  }
+  function viewLoading() {
+    return ui.bootError
+      ? `<section class="card login"><h3>No se pudieron cargar tus datos</h3><p>${esc(ui.bootError)}</p><div class="row"><button class="btn primary" data-act="retryload">Reintentar</button><button class="btn" data-act="logout">Salir</button></div></section>`
+      : '<section class="card login"><p class="muted">Cargando tus datos…</p></section>';
+  }
+  function renderHeader() {
+    const nav = $('nav'), bar = $('#userbar'), u = ui.usage;
+    nav.hidden = !(session && ui.ready);
+    bar.innerHTML = session ? `<span id="sync" class="sync"></span>${u ? `<span class="b" title="Generaciones con IA de hoy">IA hoy: ${u.ai.used}/${u.ai.limit}</span>` : ''}<span class="muted email">${esc(session.email)}</span><button class="btn sm ghost" data-act="logout">Salir</button>` : '';
+    paintSync();
+  }
+
   function viewHoy() {
     const last = S.posts.find((p) => p.id === ui.lastPostId);
     return `<section class="card">
@@ -189,6 +300,7 @@
       ${ps.map(postCard).join('') || '<p class="muted">Todavía no hay posts. Empieza en Hoy.</p>'}`;
   }
 
+  function legacyExists() { try { return !!localStorage.getItem(LEGACY); } catch (e) { return false; } }
   function viewMemoria() {
     const p = S.profile, st = S.settings;
     const f = (k, l, ta) => `<label>${l}${ta ? `<textarea data-p="${k}" rows="2">${esc(p[k])}</textarea>` : `<input data-p="${k}" value="${esc(p[k])}">`}</label>`;
@@ -211,19 +323,17 @@
     <section class="card"><h3>Correcciones que ella hizo (${S.feedback.length})</h3>
       <ul class="mem">${S.feedback.slice().reverse().map((m) => `<li><span>${esc(m.texto)}</span><button class="btn sm ghost danger" data-act="fbdel" data-id="${m.id}">✕</button></li>`).join('')}</ul></section>
     <section class="card"><h3>Ajustes</h3><div class="grid2">
-      <label>API key de Anthropic<input type="password" data-s="apiKey" value="${esc(st.apiKey)}" placeholder="sk-ant-…" autocomplete="off"></label>
-      <label>Modelo<input data-s="model" value="${esc(st.model)}"></label>
-      <label>Clave OpenAI (solo para subir audio, opcional)<input type="password" data-s="openaiKey" value="${esc(st.openaiKey)}" autocomplete="off"></label>
       <label>Idioma de dictado<select data-s="lang">${['es-419', 'es-MX', 'es-ES', 'es-CO', 'es-AR', 'en-US'].map((l) => `<option ${l === st.lang ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-      <p class="muted">Las claves se guardan solo en este navegador y van directo a Anthropic/OpenAI. No uses este dashboard en un computador compartido.</p>
       <h4>Cadencia (3 por semana)</h4>${st.slots.map((s, i) => `<div class="row"><select data-sl="${i}.dow">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === s.dow ? 'selected' : ''}>${DIAS[d]}</option>`).join('')}</select><input data-sl="${i}.tipo" value="${esc(s.tipo)}"></div>`).join('')}
-      <div class="row wrap"><button class="btn" data-act="export">Exportar respaldo</button><label class="btn file">Importar respaldo<input type="file" id="imp" accept="application/json" hidden></label><button class="btn ghost danger" data-act="reset">Borrar todo</button></div>
-      <p class="muted">Sus datos no están en GitHub: exporta un respaldo de vez en cuando.</p></section>`;
+      <p class="muted">Todo se guarda solo en Google Sheets unos segundos después de cada cambio (mira el aviso arriba). Si quieres forzarlo:</p>
+      <div class="row wrap"><button class="btn primary" data-act="syncnow">Guardar ahora</button><button class="btn" data-act="export">Exportar respaldo</button><label class="btn file">Importar respaldo<input type="file" id="imp" accept="application/json" hidden></label>${legacyExists() ? '<button class="btn" data-act="legacy">Importar datos de la versión anterior (este navegador)</button>' : ''}<button class="btn ghost danger" data-act="reset">Borrar todo</button></div>
+      <p class="muted">Importar un respaldo sube esos datos a tu cuenta. Las claves de la IA ya no se guardan aquí: viven en el servidor.</p></section>`;
   }
 
   function render() {
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === ui.tab));
-    const v = { hoy: viewHoy, calendario: viewCalendario, posts: viewPosts, memoria: viewMemoria }[ui.tab]();
+    renderHeader();
+    const v = !session ? viewLogin() : !ui.ready ? viewLoading() : { hoy: viewHoy, calendario: viewCalendario, posts: viewPosts, memoria: viewMemoria }[ui.tab]();
     // Conserva el texto que está escribiendo si se re-renderiza.
     const draft = $('#txt') ? $('#txt').value : '';
     $('#view').innerHTML = v;
@@ -247,16 +357,17 @@
   async function generate() {
     const txt = ($('#txt').value || '').trim();
     if (txt.length < 30) return toast('Cuéntame un poco más (al menos un par de frases).');
+    if (ui.usage && ui.usage.ai.used >= ui.usage.ai.limit) return toast('Llegaste al límite de ' + ui.usage.ai.limit + ' generaciones por hoy. Vuelve mañana.');
     if (ui.busy) return; ui.busy = true; $('#genBtn').disabled = true; setStatus('Generando… (unos segundos)');
     try {
-      const cap = { id: uid(), fecha: today(), texto: txt };
+      const cap = { id: uid(), fecha: today(), texto: txt.slice(0, 40000) };
       const r = await AI.generatePost(S, txt, $('#tipoSel').value);
       const p = { id: uid(), captureId: cap.id, estado: 'borrador', created: new Date().toISOString(), fechaPlan: '' };
       applyResult(p, r);
       S.captures.push(cap); S.posts.push(p); save();
       ui.lastPostId = p.id; $('#txt').value = ''; ui.busy = false; render();
       toast(p.pendientes.length ? 'Listo, pero faltan datos. Revisa las preguntas.' : 'Post listo.');
-    } catch (e) { ui.busy = false; setStatus(''); toast(e.message); const b = $('#genBtn'); if (b) b.disabled = false; }
+    } catch (e) { ui.busy = false; setStatus(''); handleErr(e); const b = $('#genBtn'); if (b) b.disabled = false; }
   }
   async function regenerate(p, extra) {
     const cap = S.captures.find((c) => c.id === p.captureId);
@@ -287,6 +398,11 @@
     if (el.dataset.tab) return go(el.dataset.tab);
     const a = el.dataset.act, id = el.dataset.id, p = id && post(id);
     try {
+      if (a === 'login') return login();
+      if (a === 'logout') return logout();
+      if (a === 'retryload') return bootstrap();
+      if (a === 'syncnow') { await doSync(); return toast(ui.sync === 'ok' ? 'Guardado en Google Sheets.' : 'No se pudo guardar.'); }
+      if (a === 'legacy') return importJson(localStorage.getItem(LEGACY), 'Datos anteriores importados.');
       if (a === 'generate') return generate();
       if (a === 'dictate') return dictate();
       if (a === 'copy') return copy(p.hook + '\n\n' + p.cuerpo);
@@ -310,15 +426,15 @@
       if (a === 'fbdel') { S.feedback = S.feedback.filter((m) => m.id !== id); save(); return render(); }
       if (a === 'abre') { const ab = S.abiertos.find((x) => x.id === id), v = $(`[data-ab="${id}"]`).value.trim(); if (!v) return; ab.resuelto = true; ab.respuesta = v; S.memory.push({ id: uid(), fecha: today(), texto: `${ab.dato}: ${v}` }); save(); return render(); }
       if (a === 'export') { const b = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }); const l = document.createElement('a'); l.href = URL.createObjectURL(b); l.download = `bip-respaldo-${today()}.json`; l.click(); return; }
-      if (a === 'reset') { if (confirm('Esto borra todo (memoria, posts y claves) de este navegador. ¿Seguro?')) { localStorage.removeItem(KEY); load(); render(); } return; }
-    } catch (err) { toast(err.message); }
+      if (a === 'reset') { if (confirm('Esto borra TODOS tus datos (memoria, posts y ejemplos), también en Google Sheets. ¿Seguro?')) { const n = S.profile.nombre; S = defaults(); S.profile.nombre = n; save(); await doSync(); render(); } return; }
+    } catch (err) { handleErr(err); }
   });
 
   document.addEventListener('change', (e) => {
     const t = e.target;
     if (t.dataset.act === 'filtro') { ui.filtro = t.value; return render(); }
-    if (t.id === 'aud') { const f = t.files[0]; if (!f) return; setStatus('Transcribiendo audio…'); AI.transcribe(S, f).then((txt) => { const box = $('#txt'); box.value += (box.value ? '\n' : '') + txt; setStatus(''); }).catch((er) => { setStatus(''); toast(er.message); }); return; }
-    if (t.id === 'imp') { const f = t.files[0]; if (!f) return; f.text().then((s) => { try { S = Object.assign(defaults(), { settings: S.settings }, JSON.parse(s)); save(); render(); toast('Respaldo importado.'); } catch (er) { toast('Ese archivo no es un respaldo válido.'); } }); return; }
+    if (t.id === 'aud') { const f = t.files[0]; if (!f) return; setStatus('Transcribiendo audio…'); AI.transcribe(S, f).then((txt) => { const box = $('#txt'); box.value += (box.value ? '\n' : '') + txt; setStatus(''); }).catch((er) => { setStatus(''); handleErr(er); }); return; }
+    if (t.id === 'imp') { const f = t.files[0]; if (!f) return; f.text().then((s) => importJson(s, 'Respaldo importado y guardado en tu cuenta.')); return; }
     const card = t.closest('.post');
     if (card && t.dataset.f) { const p = post(card.dataset.id); p[t.dataset.f] = t.value; if (['hook', 'cuerpo'].includes(t.dataset.f) && p.estado === 'borrador' && (p.hook + '\n\n' + p.cuerpo) !== p.original) p.estado = 'editado'; save(); if (['estado', 'fechaPlan', 'formato'].includes(t.dataset.f)) render(); return; }
     if (t.dataset.p) { S.profile[t.dataset.p] = t.value; return save(); }
@@ -328,6 +444,18 @@
     if (t.dataset.sl) { const [i, k] = t.dataset.sl.split('.'); S.settings.slots[+i][k] = k === 'dow' ? +t.value : t.value; return save(); }
   });
 
+  function importJson(raw, okMsg) {
+    try {
+      const o = JSON.parse(raw), st = Object.assign({}, S.settings);
+      if (o.settings && o.settings.lang) st.lang = o.settings.lang;
+      if (o.settings && Array.isArray(o.settings.slots)) st.slots = o.settings.slots;
+      delete o.settings; delete o.v;
+      S = Object.assign(defaults(), o, { settings: st }); ensureIds(); save(); render(); toast(okMsg);
+    } catch (er) { toast('Ese archivo no es un respaldo válido.'); }
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.target.id === 'lgEmail' || e.target.id === 'lgCode')) login(); });
+  API.onUsage = (u) => { ui.usage = u; if (session) renderHeader(); };
+
   // Arrastrar y soltar en el calendario
   document.addEventListener('dragstart', (e) => { const c = e.target.closest('[data-drag]'); if (c) e.dataTransfer.setData('text/plain', c.dataset.drag); });
   document.addEventListener('dragover', (e) => { if (e.target.closest('[data-drop]')) e.preventDefault(); });
@@ -336,5 +464,5 @@
     const p = post(e.dataTransfer.getData('text/plain')); if (!p) return; p.fechaPlan = s.dataset.drop; save(); render();
   });
 
-  load(); render();
+  bootstrap();
 })();

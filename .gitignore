@@ -9,3 +9,6 @@ node_modules/
 
 # Material privado de una persona (nunca al repo público)
 private/
+
+# Configuración local con claves (se genera desde .env)
+apps-script/Setup.local.gs

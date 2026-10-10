@@ -5,7 +5,8 @@ Deriva del paquete de traspaso original (material privado). **Aviso:** la "ingen
 ## Flujo (basado en la skill)
 1. Captura (texto, dictado o audio) → 2. clasificar problema → 3. elegir formato (15) → 4. verificar completitud (preguntas si falta material) → 5. redactar cuerpo casi textual → 6. hook reescrito (6 patrones) → 7. entrega: formato, por qué, problema, público, post.
 
-## Modelo de datos (`localStorage["bip.v1"]`)
+## Modelo de datos (Google Sheets, pestaña `Datos`: una fila por elemento — correo · coleccion · id · resumen · json · actualizado)
+Colecciones: `doc` (profile, config), `memory`, `captures`, `posts`, `feedback`, `abiertos`. Usuarios y cupos: pestañas `Usuarios` y `Uso`.
 | Entidad | Campos |
 |---|---|
 | profile | nombre, rol, nivel, proyecto, etapa, tono, noEs |
@@ -17,7 +18,7 @@ Deriva del paquete de traspaso original (material privado). **Aviso:** la "ingen
 | memory | notas del "cerebro": hechos y rasgos de voz |
 | feedback | correcciones de edición |
 | abiertos | datos pendientes con ella (stack, brokers, tercera decisión) |
-| settings | apiKey, model, openaiKey, lang, slots (cadencia) |
+| config (en `doc`) | brief, pilares, constraints, audiences, ejemplos, lang, slots (cadencia) |
 
 La secuencia (log) se deriva de `posts`: alimenta rotación, alertas y el prompt.
 
