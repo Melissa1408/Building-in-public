@@ -11,7 +11,7 @@ Web estática (HTML + JS, sin build ni servidor) para convertir lo que una perso
 - **Memoria**: perfil, público, restricciones, datos abiertos, notas del "cerebro" y ajustes. Crece con cada captura.
 
 ## Cómo funciona
-Página estática (GitHub Pages) + **Google Sheets como base de datos** + **Apps Script como servidor**. Login por correo: solo entran los correos de la pestaña *Usuarios*. La IA corre en el servidor (las claves nunca están en la página) con un límite de **2 generaciones por usuario y día**, pensado para que otras personas prueben el repo.
+Página estática (GitHub Pages) + **Google Sheets como base de datos** + **Apps Script como servidor**. **Sin registro ni aprobación:** cualquiera escribe su correo, se guarda solo en la pestaña *Usuarios* y obtiene **2 pruebas gratis**. Las personas que tú agregues a mano tienen cupo diario y código de acceso opcional. La IA corre en el servidor (las claves nunca están en la página) y hay topes diarios que protegen tu gasto.
 
 **Despliegue paso a paso: [DESPLIEGUE.md](DESPLIEGUE.md).** Variables de entorno: [.env.example](.env.example).
 

@@ -12,7 +12,7 @@
   "hook": "primera línea o dos, reescritas a partir del punto de mayor tensión del cuerpo",
   "cuerpo": "cuerpo del post, ~80% textual a su narración, solo limpieza mínima de muletillas, SIN el hook",
   "completo": true o false (false si falta material esencial del formato),
-  "pendientes": [{"dato": "qué falta", "pregunta": "la pregunta exacta que hay que hacerle a ella"}],
+  "pendientes": [máximo 2 objetos {"dato": "qué falta", "pregunta": "pregunta de una línea"}, o lista vacía],
   "memoria": ["hechos nuevos y verificables que ella contó (tecnología, decisiones, stack, números) o rasgos de su voz, uno por ítem, cortos"]
 }`;
 
@@ -73,8 +73,12 @@ ${list(seq)}
 # DATOS ABIERTOS CON ELLA
 ${list(open)}
 
-# CADENCIA
-3 posts por semana. Tema: descubrimientos en tecnología y decisiones al desarrollar un proyecto fintech.
+# REGLAS DE ESTA APLICACIÓN (tienen prioridad sobre el skill)
+- Tema y público: salen SOLO del perfil, el proyecto, la memoria y lo que la persona cuenta. Si no hay perfil, no asumas industria, tecnología ni rol. Ignora cualquier ejemplo de industria del skill.
+- Preguntas: máximo 2 en "pendientes", de UNA línea, respondibles en una frase (menos de 30 segundos). Solo si sin ese dato el post no tiene sentido. Si el post se sostiene con lo que hay, devuelve "pendientes": [].
+- Elige el formato que el material YA cubre; no elijas uno que exija datos que no existen. Lo que falte y no sea esencial, omítelo (no lo inventes).
+- Si un dato esencial falta, redacta igual y deja "[por completar]" solo en ese punto.
+- "memoria": máximo 3 hechos, solo los que dijo explícitamente, cada uno en menos de 12 palabras.
 
 # SALIDA
 ${SCHEMA}`;

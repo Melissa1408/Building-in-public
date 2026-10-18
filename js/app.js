@@ -81,7 +81,7 @@
 
   async function pullState() {
     const d = await API.call('load');
-    ui.usage = d.usage; session.nombre = d.user.nombre;
+    ui.usage = d.usage; session.nombre = d.user.nombre; session.trial = !!d.user.trial;
     if (d.empty) {
       S = defaults(); if (d.user.nombre) S.profile.nombre = d.user.nombre;
       lastSent = {}; ui.ready = true; save();       // cuenta nueva: sube la base inicial
@@ -101,7 +101,7 @@
     msg.textContent = 'Verificando…'; btn.disabled = true; API.token = '';
     try {
       const r = await API.call('login', { email, codigo });
-      session = { token: r.token, email: r.user.email, nombre: r.user.nombre }; API.token = r.token; ui.usage = r.usage; ui.ready = false;
+      session = { token: r.token, email: r.user.email, nombre: r.user.nombre, trial: !!r.user.trial }; API.token = r.token; ui.usage = r.usage; ui.ready = false;
       msg.textContent = 'Cargando tus datos…';
       try { await pullState(); } catch (e) { session = null; API.token = ''; throw e; }
       try { localStorage.setItem(SKEY, JSON.stringify(session)); } catch (e) { /* sin sesión persistente */ }
@@ -122,7 +122,7 @@
     toast(err && err.message ? err.message : 'Ocurrió un error.');
   }
 
-  const ui = { ready: false, bootError: '', usage: null, sync: 'idle', tab: 'hoy', weekOffset: 0, monthOffset: 0, calView: 'semana', focus: null, busy: false, lastPostId: null, filtro: 'todos' };
+  const ui = { ready: false, bootError: '', usage: null, sync: 'idle', tab: 'hoy', weekOffset: 0, monthOffset: 0, calView: 'mes', focus: null, busy: false, lastPostId: null, filtro: 'todos' };
 
   function toast(msg) {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -154,19 +154,17 @@
     const seq = S.posts.filter((p) => p.estado !== 'descartado').slice().sort((a, b) => (a.fechaPlan || a.created).localeCompare(b.fechaPlan || b.created));
     for (let i = 1; i < seq.length; i++) {
       if (seq[i].formato && seq[i].formato === seq[i - 1].formato) out.push({ t: 'warn', msg: `Rotación: dos posts seguidos con el formato "${seq[i].formato}".`, focus: seq[i].id });
-      if (seq[i].publico && seq[i].publico === seq[i - 1].publico) out.push({ t: 'info', msg: `Rotación: dos posts seguidos para "${seq[i].publico}".`, focus: seq[i].id });
+      else if (seq[i].publico && seq[i].publico === seq[i - 1].publico) out.push({ t: 'info', msg: `Rotación: dos posts seguidos para "${seq[i].publico}".`, focus: seq[i].id });
     }
-    S.posts.forEach((p) => (p.pendientes || []).filter((q) => !q.resuelto).forEach((q) =>
-      out.push({ t: 'ask', msg: `Falta dato en un post (${p.formato}): ${q.pregunta}`, focus: p.id })));
-    S.abiertos.filter((a) => !a.resuelto).forEach((a) => out.push({ t: 'ask', msg: `Pendiente con ella: ${a.pregunta}`, go: 'memoria' }));
-    const empty = weekSlots(0).filter((s) => s.date >= today() && !S.posts.some((p) => p.fechaPlan === s.date));
-    if (empty.length) out.push({ t: 'info', msg: `Esta semana tienes ${empty.length} hueco(s) sin post: ${empty.map((s) => DIAS[s.dow]).join(', ')}.`, go: 'calendario' });
+    S.abiertos.filter((a) => !a.resuelto).forEach((a) => out.push({ t: 'ask', msg: `Pendiente: ${a.pregunta}`, go: 'memoria' }));
     return out;
   }
-  function alertsHtml() {
-    const a = alerts();
-    if (!a.length) return '<p class="muted">Sin alertas. Todo en orden.</p>';
-    return '<ul class="alerts">' + a.map((x, i) => `<li class="al ${x.t}" data-act="alert" data-i="${i}">${esc(x.msg)}</li>`).join('') + '</ul>';
+  // Muestra 3 alertas y esconde el resto. Si no hay ninguna, no ocupa espacio.
+  function alertsCard() {
+    const a = alerts(); if (!a.length) return '';
+    const li = (x, i) => `<li class="al ${x.t}" data-act="alert" data-i="${i}">${esc(x.msg)}</li>`;
+    const rest = a.slice(3).map((x, i) => li(x, i + 3)).join('');
+    return `<section class="card"><h3>Avisos</h3><ul class="alerts">${a.slice(0, 3).map(li).join('')}</ul>${rest ? `<details><summary>Ver ${a.length - 3} más</summary><ul class="alerts">${rest}</ul></details>` : ''}</section>`;
   }
 
   // ---------- Post card ----------
@@ -174,12 +172,10 @@
   function rows(t) { return Math.min(22, Math.max(4, String(t || '').split('\n').length + Math.ceil(String(t || '').length / 90))); }
 
   function postCard(p) {
-    const pend = (p.pendientes || []).map((q) => q.resuelto ? '' : `
-      <div class="pend"><strong>Falta: ${esc(q.dato)}</strong><div>${esc(q.pregunta)}</div>
-        <div class="row"><input data-q="${q.id}" placeholder="Su respuesta" />
-        <button class="btn sm" data-act="answer" data-id="${p.id}" data-q="${q.id}">Responder y regenerar</button></div></div>`).join('');
-    const mem = (p.memoriaSugerida || []).map((m, i) => m.added ? '' : `
-      <li><span>${esc(m.t)}</span> <button class="btn sm ghost" data-act="memadd" data-id="${p.id}" data-i="${i}">+ Memoria</button></li>`).join('');
+    const open = (p.pendientes || []).filter((q) => !q.resuelto);
+    const pend = open.length ? `<div class="pend"><strong>Para afinar el post (opcional, una frase por pregunta)</strong>
+      ${open.map((q) => `<label>${esc(q.pregunta)}<input data-q="${q.id}" placeholder="Tu respuesta"></label>`).join('')}
+      <div class="row wrap"><button class="btn sm primary" data-act="answer" data-id="${p.id}">Responder y mejorar · usa 1</button><button class="btn sm ghost" data-act="skipq" data-id="${p.id}">Dejarlo así</button></div></div>` : '';
     return `<article class="card post" id="post-${p.id}" data-id="${p.id}">
       <div class="badges"><span class="b ${p.estado}">${esc(p.estado)}</span><span class="b">${esc(p.formato || '—')}</span>
         ${p.tipo ? `<span class="b">${esc(p.tipo)}</span>` : ''}${p.fechaPlan ? `<span class="b">📅 ${esc(p.fechaPlan)}</span>` : ''}</div>
@@ -196,10 +192,9 @@
         <p><strong>Por qué:</strong> ${esc(p.porque)}</p><p><strong>Problema:</strong> ${esc(p.problema)}</p>
         <label>Público<input data-f="publico" value="${esc(p.publico)}"></label></details>
       ${pend}
-      ${mem ? `<div class="memsug"><strong>Lo que aprendí de lo que contaste</strong><ul>${mem}</ul></div>` : ''}
       <div class="row actions">
         <button class="btn primary" data-act="copy" data-id="${p.id}">Copiar post</button>
-        <button class="btn" data-act="hook" data-id="${p.id}">Otro hook</button>
+        <button class="btn" data-act="hook" data-id="${p.id}">Otro hook · usa 1</button>
         <button class="btn" data-act="publish" data-id="${p.id}">Marcar publicado</button>
         <button class="btn ghost danger" data-act="del" data-id="${p.id}">Eliminar</button>
       </div>
@@ -211,11 +206,11 @@
   function viewLogin() {
     if (!(window.BIP_CONFIG || {}).API_URL) return `<section class="card login"><h2>Falta configurar el servidor</h2>
       <p>Esta página necesita la URL de tu Web App de Apps Script. Ábrela en <code>js/config.js</code> y pégala en <code>API_URL</code>. Los pasos están en <strong>DESPLIEGUE.md</strong>.</p></section>`;
-    return `<section class="card login"><h2>Entrar</h2>
-      <p class="muted">Escribe el correo con el que te dieron acceso. Si tu correo no está en la lista, no podrás generar posts.</p>
+    return `<section class="card login"><h2>Prueba el generador de posts</h2>
+      <p class="muted">Escribe tu correo y empieza: sin contraseña y sin esperar aprobación. Tienes <strong>2 pruebas gratis</strong>. Guardamos tu correo solo para contarlas.</p>
       <label>Correo<input id="lgEmail" type="email" autocomplete="email" placeholder="tu@correo.com"></label>
       <label id="lgCodeWrap" hidden>Código de acceso<input id="lgCode" type="password" autocomplete="off"></label>
-      <div class="row"><button class="btn primary" id="lgBtn" data-act="login">Entrar</button></div>
+      <div class="row"><button class="btn primary" id="lgBtn" data-act="login">Empezar</button></div>
       <p id="lgMsg" class="muted"></p></section>`;
   }
   function viewLoading() {
@@ -226,26 +221,37 @@
   function renderHeader() {
     const nav = $('nav'), bar = $('#userbar'), u = ui.usage;
     nav.hidden = !(session && ui.ready);
-    bar.innerHTML = session ? `<span id="sync" class="sync"></span>${u ? `<span class="b" title="Generaciones con IA de hoy">IA hoy: ${u.ai.used}/${u.ai.limit}</span>` : ''}<span class="muted email">${esc(session.email)}</span><button class="btn sm ghost" data-act="logout">Salir</button>` : '';
+    bar.innerHTML = session ? `<span id="sync" class="sync"></span>${u ? (u.ai.total ? `<span class="b" title="Pruebas gratuitas con IA">Pruebas: ${Math.max(0, u.ai.limit - u.ai.used)} de ${u.ai.limit}</span>` : `<span class="b" title="Generaciones con IA de hoy">IA hoy: ${u.ai.used}/${u.ai.limit}</span>`) : ''}<span class="muted email">${esc(session.email)}</span><button class="btn sm ghost" data-act="logout">Salir</button>` : '';
     paintSync();
   }
 
+  function limitText() {
+    const u = ui.usage; if (!u) return '';
+    return u.ai.total ? `Ya usaste tus ${u.ai.limit} pruebas gratuitas.` : `Llegaste al límite de ${u.ai.limit} generaciones por hoy. Vuelve mañana.`;
+  }
+  function limitBanner() {
+    const u = ui.usage; if (!u || u.ai.used < u.ai.limit) return '';
+    const c = window.BIP_CONFIG || {};
+    const link = c.CONTACT_URL && /^https:\/\//.test(c.CONTACT_URL) ? ` <a href="${esc(c.CONTACT_URL)}" target="_blank" rel="noopener">${esc(c.CONTACT_TEXT || 'Escríbeme')}</a>` : (c.CONTACT_TEXT ? ' ' + esc(c.CONTACT_TEXT) : '');
+    return `<section class="card limit"><strong>${limitText()}</strong>${link}<p class="muted">Tus posts siguen aquí para copiar o editar.</p></section>`;
+  }
   function viewHoy() {
     const last = S.posts.find((p) => p.id === ui.lastPostId);
-    return `<section class="card">
+    return `${limitBanner()}<section class="card">
       <h2>¿Qué aprendiste o decidiste hoy?</h2>
       <p class="muted">Cuéntalo como se lo contarías a alguien. Dicta, sube un audio o escribe. Mientras más natural, mejor suena el post.</p>
-      <textarea id="txt" rows="7" placeholder="Hoy descubrí que… / Decidí usar X en vez de Y porque…"></textarea>
+      ${!S.profile.proyecto ? `<label>¿Qué estás construyendo o aprendiendo? <span class="muted">(opcional; ayuda a que el post suene a ti)</span><input data-p="proyecto" placeholder="Ej.: una tienda online, mi primer bot, un curso de datos…"></label>` : ''}
+      <textarea id="txt" rows="6" placeholder="Hoy descubrí que… / Decidí X en vez de Y porque…  (2 o 3 frases bastan)"></textarea>
       <div class="row wrap">
         <button class="btn" data-act="dictate" id="dictBtn">🎙 Dictar</button>
-        <label class="btn file">Subir audio<input type="file" id="aud" accept="audio/*" hidden></label>
+        ${session && session.trial ? '' : '<label class="btn file">Subir audio<input type="file" id="aud" accept="audio/*" hidden></label>'}
         <select id="tipoSel"><option value="">Tipo: automático</option>${TIPOS.map((t) => `<option>${t}</option>`).join('')}</select>
         <button class="btn primary" data-act="generate" id="genBtn">Generar post</button>
       </div>
       <p id="status" class="muted"></p>
     </section>
     ${last ? `<h3>Tu post</h3>${postCard(last)}` : ''}
-    <section class="card"><h3>Alertas</h3>${alertsHtml()}</section>`;
+    `;
   }
 
   function viewSemana() {
@@ -261,7 +267,7 @@
         </div>`; }).join('')}</div>
       <section class="card"><h3>Sin ubicar</h3>
       ${unplaced.map((p) => `<div class="chip ${p.estado}" draggable="true" data-drag="${p.id}" data-act="open" data-id="${p.id}"><strong>${esc(p.formato)}</strong> · ${esc((p.hook || '').slice(0, 80))}</div>`).join('') || '<p class="muted">Nada pendiente de ubicar.</p>'}</section>
-      <section class="card"><h3>Alertas</h3>${alertsHtml()}</section>`;
+      ${alertsCard()}`;
   }
 
   function viewMes() {
@@ -285,10 +291,10 @@
       <div class="mcal">${['L','M','X','J','V','S','D'].map((x) => `<div class="dh">${x}</div>`).join('')}${cells}</div>
       <p class="muted">Los días marcados son tus huecos de publicación. Arrastra un post a cualquier día.</p>
       <section class="card"><h3>Sin ubicar</h3>${unplaced.map((x) => `<div class="chip ${x.estado}" draggable="true" data-drag="${x.id}" data-act="open" data-id="${x.id}"><strong>${esc(x.formato)}</strong> · ${esc((x.hook || '').slice(0, 80))}</div>`).join('') || '<p class="muted">Nada pendiente de ubicar.</p>'}</section>
-      <section class="card"><h3>Alertas</h3>${alertsHtml()}</section>`;
+      ${alertsCard()}`;
   }
   function viewCalendario() {
-    const tog = `<div class="row"><button class="btn sm ${ui.calView === 'semana' ? 'primary' : ''}" data-act="calview" data-v="semana">Semana</button><button class="btn sm ${ui.calView === 'mes' ? 'primary' : ''}" data-act="calview" data-v="mes">Mes</button></div>`;
+    const tog = `<div class="row"><button class="btn sm ${ui.calView === 'mes' ? 'primary' : ''}" data-act="calview" data-v="mes">Mes</button><button class="btn sm ${ui.calView === 'semana' ? 'primary' : ''}" data-act="calview" data-v="semana">Semana</button></div>`;
     return tog + (ui.calView === 'mes' ? viewMes() : viewSemana());
   }
 
@@ -353,20 +359,30 @@
     p.memoriaSugerida = (r.memoria || []).map((t) => ({ t, added: false }));
     p.original = p.hook + '\n\n' + p.cuerpo;
   }
+  // Los datos que la persona cuenta (stack, decisiones, cifras) se guardan solos en su memoria, sin botones.
+  function autoMemory(p) {
+    let n = 0;
+    (p.memoriaSugerida || []).forEach((m) => {
+      if (m.added) return; const t = String(m.t || '').trim(); if (!t) return;
+      if (!S.memory.some((x) => String(x.texto).toLowerCase() === t.toLowerCase())) { S.memory.push({ id: uid(), fecha: today(), texto: t.slice(0, 300) }); n++; }
+      m.added = true;
+    });
+    return n;
+  }
   function setStatus(m) { const s = $('#status'); if (s) s.textContent = m; }
   async function generate() {
     const txt = ($('#txt').value || '').trim();
     if (txt.length < 30) return toast('Cuéntame un poco más (al menos un par de frases).');
-    if (ui.usage && ui.usage.ai.used >= ui.usage.ai.limit) return toast('Llegaste al límite de ' + ui.usage.ai.limit + ' generaciones por hoy. Vuelve mañana.');
+    if (ui.usage && ui.usage.ai.used >= ui.usage.ai.limit) return toast(limitText());
     if (ui.busy) return; ui.busy = true; $('#genBtn').disabled = true; setStatus('Generando… (unos segundos)');
     try {
       const cap = { id: uid(), fecha: today(), texto: txt.slice(0, 40000) };
       const r = await AI.generatePost(S, txt, $('#tipoSel').value);
       const p = { id: uid(), captureId: cap.id, estado: 'borrador', created: new Date().toISOString(), fechaPlan: '' };
       applyResult(p, r);
-      S.captures.push(cap); S.posts.push(p); save();
+      const nm = autoMemory(p); S.captures.push(cap); S.posts.push(p); save();
       ui.lastPostId = p.id; $('#txt').value = ''; ui.busy = false; render();
-      toast(p.pendientes.length ? 'Listo, pero faltan datos. Revisa las preguntas.' : 'Post listo.');
+      toast((p.pendientes.length ? 'Post listo. Puedes afinarlo con 1-2 respuestas cortas.' : 'Post listo.') + (nm ? ' Guardé ' + nm + ' dato(s) en tu memoria.' : ''));
     } catch (e) { ui.busy = false; setStatus(''); handleErr(e); const b = $('#genBtn'); if (b) b.disabled = false; }
   }
   async function regenerate(p, extra) {
@@ -374,7 +390,7 @@
     if (cap) cap.texto += '\n\n' + extra;
     toast('Regenerando con tu respuesta…');
     const r = await AI.generatePost(S, cap ? cap.texto : extra, p.tipo);
-    applyResult(p, r); save(); render(); toast('Post actualizado.');
+    applyResult(p, r); const nm = autoMemory(p); save(); render(); toast('Post actualizado.' + (nm ? ' Guardé ' + nm + ' dato(s) en tu memoria.' : ''));
   }
 
   // ---------- Dictado ----------
@@ -410,11 +426,14 @@
       if (a === 'del') { if (confirm('¿Eliminar este post?')) { S.posts = S.posts.filter((x) => x.id !== id); save(); render(); } return; }
       if (a === 'hook') { toast('Buscando otro hook…'); const r = await AI.newHook(S, p); p.hook = r.hook; p.patronHook = r.patron_hook; save(); return render(); }
       if (a === 'answer') {
-        const q = p.pendientes.find((x) => x.id === el.dataset.q), v = $(`[data-q="${q.id}"]`).value.trim();
-        if (!v) return toast('Escribe la respuesta primero.');
-        q.resuelto = true; return regenerate(p, `[Respuesta a "${q.pregunta}"]: ${v}`);
+        const card = el.closest('.post'), parts = [];
+        (p.pendientes || []).forEach((q) => { const inp = card.querySelector('[data-q="' + q.id + '"]'); const v = inp && inp.value.trim(); if (v) parts.push('[Respuesta a "' + q.pregunta + '"]: ' + v); });
+        if (!parts.length) return toast('Escribe al menos una respuesta, o pulsa "Dejarlo así".');
+        el.disabled = true;
+        try { await regenerate(p, parts.join('\n')); } finally { el.disabled = false; }
+        return;
       }
-      if (a === 'memadd') { const m = p.memoriaSugerida[+el.dataset.i]; m.added = true; S.memory.push({ id: uid(), fecha: today(), texto: m.t }); save(); return render(); }
+      if (a === 'skipq') { (p.pendientes || []).forEach((q) => { q.resuelto = true; }); save(); return render(); }
       if (a === 'fb') { const i = $(`[data-fb="${id}"]`), v = i.value.trim(); if (!v) return; S.feedback.push({ id: uid(), fecha: today(), texto: `(${p.formato}) ${v}` }); p.estado = p.estado === 'borrador' ? 'editado' : p.estado; i.value = ''; save(); return toast('Guardado. No repetiré ese error.'); }
       if (a === 'open') return go('posts', id);
       if (a === 'calview') { ui.calView = el.dataset.v; return render(); }

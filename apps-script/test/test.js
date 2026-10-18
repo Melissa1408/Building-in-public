@@ -5,7 +5,7 @@ let n = 0;
 const t = (name, fn) => { fn(); n++; console.log('✔', name); };
 
 function fresh(props) {
-  const rt = createRuntime({ props });
+  const rt = createRuntime({ props: Object.assign({ AUTO_REGISTER: 'NO' }, props) });
   rt.setup();
   rt.addUser('Ana@Example.com', 'Ana');
   rt.addUser('inactivo@example.com', 'X', 'NO');
@@ -23,7 +23,10 @@ t('login: correo que no está en el Sheet es rechazado', () => { assert.strictEq
 t('login: usuario con activo=NO es rechazado (mismo mensaje que inexistente)', () => {
   const rt = fresh(); assert.strictEqual(login(rt, 'inactivo@example.com').error, login(rt, 'nadie@example.com').error);
 });
-t('login: correo con formato inválido es rechazado', () => { assert.strictEqual(login(fresh(), 'no-es-correo').code, 'denied'); });
+t('login: correo con formato inválido es rechazado (también con auto-registro)', () => {
+  assert.strictEqual(login(fresh(), 'no-es-correo').code, 'invalid');
+  assert.strictEqual(login(fresh({ AUTO_REGISTER: 'SI' }), '=cmd@x.com').code, 'invalid');
+});
 t('login: código de acceso se exige solo si el usuario lo tiene', () => {
   const rt = fresh();
   assert.strictEqual(login(rt, 'secreto@example.com', 'mal').code, 'code');
@@ -119,4 +122,68 @@ t('acción desconocida y JSON roto devuelven error, no excepción', () => {
   assert.strictEqual(rt.post({ action: 'borrar', token: a }).code, 'bad');
   assert.strictEqual(JSON.parse(rt.g.doPost({ postData: { contents: '{roto' } }).getContent()).ok, false);
 });
+// ---------- Auto-registro y pruebas gratuitas ----------
+const auto = (props) => fresh(Object.assign({ AUTO_REGISTER: 'SI' }, props));
+const ask = (rt, tk) => rt.post({ action: 'ai', token: tk, system: 's', user: 'u' });
+const userRows = (rt) => rt.tabs.Usuarios.cells.slice(1).filter((r) => r && r[0]);
+
+t('auto-registro: un correo nuevo entra sin aprobación y queda guardado en el Sheet', () => {
+  const rt = auto(); const before = userRows(rt).length;
+  const r = login(rt, 'Nueva.Persona@Example.com');
+  assert.ok(r.ok && r.user.trial === true && r.usage.ai.limit === 2 && r.usage.ai.total === true);
+  const rows = userRows(rt); assert.strictEqual(rows.length, before + 1);
+  const row = rows[rows.length - 1]; assert.strictEqual(row[0], 'nueva.persona@example.com'); assert.strictEqual(row[2], 'SI'); assert.strictEqual(row[6], 'prueba');
+  login(rt, 'nueva.persona@example.com'); assert.strictEqual(userRows(rt).length, before + 1, 'no duplica');
+});
+t('prueba: 2 usos EN TOTAL (no por día) y luego se bloquea con mensaje claro', () => {
+  const rt = auto(); const tk = login(rt, 'visita@example.com').token;
+  assert.ok(ask(rt, tk).ok); const r2 = ask(rt, tk); assert.ok(r2.ok);
+  assert.strictEqual(r2.usage.ai.used, 2);
+  const r3 = ask(rt, tk); assert.strictEqual(r3.code, 'limit'); assert.match(r3.error, /pruebas gratuitas/);
+  assert.strictEqual(rt.calls.fetch.length, 2);
+  assert.ok(rt.tabs.Uso.cells.some((r) => r && r[0] === 'TOTAL' && r[1] === 'visita@example.com' && r[3] === 2));
+  const tk2 = login(rt, 'visita@example.com').token; assert.strictEqual(ask(rt, tk2).code, 'limit');
+});
+t('prueba: alias del mismo correo (+etiqueta, puntos de Gmail) comparten el cupo', () => {
+  const rt = auto(); const a = login(rt, 'mel.bauto@gmail.com').token;
+  ask(rt, a); ask(rt, a);
+  const b = login(rt, 'melbauto+otra@gmail.com').token, c = login(rt, 'M.E.L.Bauto@googlemail.com').token;
+  assert.strictEqual(ask(rt, b).code, 'limit'); assert.strictEqual(ask(rt, c).code, 'limit');
+  assert.strictEqual(userRows(rt).filter((r) => r[6] === 'prueba').length, 1);
+});
+t('prueba: no puede subir audio (no gasta OpenAI)', () => {
+  const rt = auto(); const tk = login(rt, 'visita@example.com').token;
+  assert.strictEqual(rt.post({ action: 'transcribe', token: tk, audio: 'YWJj' }).code, 'trial');
+});
+t('prueba: tope global diario de pruebas protege tus tokens y no gasta el cupo personal', () => {
+  const rt = auto({ TRIAL_GLOBAL_DAILY_LIMIT: '3' });
+  const tks = ['a@x.com', 'b@x.com', 'c@x.com'].map((e) => login(rt, e).token);
+  assert.ok(ask(rt, tks[0]).ok); assert.ok(ask(rt, tks[0]).ok); assert.ok(ask(rt, tks[1]).ok);
+  const blocked = ask(rt, tks[2]); assert.strictEqual(blocked.code, 'limit'); assert.match(blocked.error, /para todos/);
+  assert.strictEqual(rt.post({ action: 'load', token: tks[2] }).usage.ai.used, 0);
+});
+t('prueba: tope de registros nuevos por día evita llenar el Sheet', () => {
+  const rt = auto({ TRIAL_NEW_USERS_DAILY_LIMIT: '2' }); const before = userRows(rt).length;
+  assert.ok(login(rt, 'a@x.com').ok); assert.ok(login(rt, 'b@x.com').ok);
+  assert.strictEqual(login(rt, 'c@x.com').code, 'full'); assert.strictEqual(userRows(rt).length, before + 2);
+  assert.ok(login(rt, 'a@x.com').ok, 'quien ya existe sigue entrando');
+});
+t('prueba: TRIAL_LIMIT configurable y AUTO_REGISTER=NO cierra el registro', () => {
+  const rt = auto({ TRIAL_LIMIT: '1' }); const tk = login(rt, 'v@x.com').token;
+  assert.ok(ask(rt, tk).ok); assert.strictEqual(ask(rt, tk).code, 'limit');
+  assert.strictEqual(login(fresh({ AUTO_REGISTER: 'NO' }), 'nuevo@x.com').code, 'denied');
+});
+t('auto-registro no pisa a usuarios existentes: código obligatorio, bloqueados siguen bloqueados', () => {
+  const rt = auto();
+  assert.strictEqual(login(rt, 'secreto+truco@example.com').code, 'code');
+  assert.strictEqual(login(rt, 'inactivo@example.com').code, 'denied');
+  assert.strictEqual(login(rt, 'vip@example.com').usage.ai.total, false);
+});
+t('prueba: guarda y lee datos, con tope de elementos por colección', () => {
+  const rt = auto(); const tk = login(rt, 'visita@example.com').token;
+  assert.ok(rt.post({ action: 'save', token: tk, changes: { memory: [{ id: '1', json: '{}' }] } }).ok);
+  const many = Array.from({ length: 101 }, (_, i) => ({ id: String(i), json: '{}' }));
+  assert.strictEqual(rt.post({ action: 'save', token: tk, changes: { memory: many } }).code, 'bad');
+});
+
 console.log('\n' + n + ' pruebas OK');

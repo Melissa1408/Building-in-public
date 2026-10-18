@@ -12,3 +12,6 @@ private/
 
 # Configuración local con claves (se genera desde .env)
 apps-script/Setup.local.gs
+
+# La plantilla sí se sube (no contiene claves)
+!.env.example

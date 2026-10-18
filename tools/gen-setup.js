@@ -11,9 +11,10 @@ const env = {};
 fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach((l) => {
   const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/); if (m && !l.trim().startsWith('#')) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 });
-const SERVER = ['ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL', 'OPENAI_API_KEY', 'DAILY_AI_LIMIT', 'DAILY_TRANSCRIBE_LIMIT', 'GLOBAL_DAILY_AI_LIMIT', 'SHEET_ID', 'TOKEN_SECRET'];
+const SERVER = ['ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL', 'OPENAI_API_KEY', 'DAILY_AI_LIMIT', 'DAILY_TRANSCRIBE_LIMIT', 'GLOBAL_DAILY_AI_LIMIT', 'AUTO_REGISTER', 'TRIAL_LIMIT', 'TRIAL_GLOBAL_DAILY_LIMIT', 'TRIAL_NEW_USERS_DAILY_LIMIT', 'SHEET_ID', 'TOKEN_SECRET'];
 if (!env.ANTHROPIC_API_KEY || /REEMPLAZA/.test(env.ANTHROPIC_API_KEY)) { console.error('ANTHROPIC_API_KEY está vacía en .env.'); process.exit(1); }
-for (const k of ['DAILY_AI_LIMIT', 'DAILY_TRANSCRIBE_LIMIT', 'GLOBAL_DAILY_AI_LIMIT']) {
+if (env.AUTO_REGISTER && !/^(SI|NO)$/i.test(env.AUTO_REGISTER)) { console.error('AUTO_REGISTER debe ser SI o NO.'); process.exit(1); }
+for (const k of ['DAILY_AI_LIMIT', 'DAILY_TRANSCRIBE_LIMIT', 'GLOBAL_DAILY_AI_LIMIT', 'TRIAL_LIMIT', 'TRIAL_GLOBAL_DAILY_LIMIT', 'TRIAL_NEW_USERS_DAILY_LIMIT']) {
   if (env[k] && !/^\d+$/.test(env[k])) { console.error(k + ' debe ser un número entero.'); process.exit(1); }
 }
 const props = {}; SERVER.forEach((k) => { if (env[k]) props[k] = env[k]; });
@@ -29,9 +30,16 @@ console.log('✔ apps-script/Setup.local.gs (' + Object.keys(props).join(', ') +
 
 if (env.APPS_SCRIPT_URL) {
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(env.APPS_SCRIPT_URL)) { console.error('APPS_SCRIPT_URL no parece una URL /exec válida.'); process.exit(1); }
+  const contactUrl = env.CONTACT_URL || '';
+  if (contactUrl && !/^https:\/\//.test(contactUrl)) { console.error('CONTACT_URL debe empezar con https://'); process.exit(1); }
   fs.writeFileSync(path.join(root, 'js/config.js'),
-`// URL de tu Web App de Apps Script (termina en /exec). NO es un secreto. Ver DESPLIEGUE.md, paso 6.
-window.BIP_CONFIG = { API_URL: ${JSON.stringify(env.APPS_SCRIPT_URL)} };
+`// URL de tu Web App de Apps Script (termina en /exec). NO es un secreto. Ver DESPLIEGUE.md, paso 7.
+window.BIP_CONFIG = {
+  API_URL: ${JSON.stringify(env.APPS_SCRIPT_URL)},
+  // Mensaje cuando se acaban las pruebas (opcional). CONTACT_URL debe empezar con https://
+  CONTACT_TEXT: ${JSON.stringify(env.CONTACT_TEXT || '')},
+  CONTACT_URL: ${JSON.stringify(contactUrl)}
+};
 `);
   console.log('✔ js/config.js actualizado con tu URL');
 }

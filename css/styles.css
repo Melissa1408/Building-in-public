@@ -58,3 +58,5 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--mu)}
 .login{max-width:420px;margin:48px auto}
 [hidden]{display:none!important}
 code{background:var(--bg);padding:1px 5px;border-radius:4px}
+.limit{border-color:var(--warn)}
+.limit a{font-weight:600}

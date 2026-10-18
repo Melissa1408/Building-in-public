@@ -5,7 +5,8 @@ const root = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
 
 const skillMd = read('skill/SKILL.md').replace(/^---[\s\S]*?---\n/, '');
-const formatsMd = read('skill/references/formats.md');
+// La tabla de público del skill es un ejemplo de una industria concreta: no se envía a la IA (sesgaría a todos los usuarios).
+const formatsMd = read('skill/references/formats.md').replace(/## Tabla de público objetivo[\s\S]*?(?=## Criterios de selección rápida)/, '');
 const hooksMd = read('skill/references/hooks.md');
 
 const formatos = [...formatsMd.matchAll(/^### \d+\. (.+)$/gm)].map((m) => m[1].trim());
@@ -19,10 +20,10 @@ const defaults = {
   brief: '',
   pilares: [],
   audiencias: [
-    { nombre: 'Desarrolladores junior/intermedios', busca: 'Aprender de un caso real, ver que otros también se bloquean', evitar: 'Condescendencia; explicar lo básico' },
-    { nombre: 'Desarrolladores senior / Tech Leads', busca: 'Profundidad técnica; evaluar si piensa bien', evitar: 'Simplificar en exceso; mostrar criterio' },
-    { nombre: 'Founders de fintech', busca: 'Ver si entiende el negocio detrás de la tecnología', evitar: 'Solo código; mostrar visión de producto' },
-    { nombre: 'Reclutadores del sector', busca: 'Evidencia de habilidades técnicas y comunicación', evitar: 'CV en prosa; mostrar proyecto vivo' }
+    { nombre: 'Colegas de tu industria', busca: 'Aprender de un caso real y ver que otros también se bloquean', evitar: 'Condescendencia; explicar lo básico' },
+    { nombre: 'Personas que están aprendiendo lo mismo', busca: 'Pasos concretos y errores que pueden evitar', evitar: 'Jerga sin explicar' },
+    { nombre: 'Quienes contratan o lideran equipos', busca: 'Ver criterio y cómo piensas tus decisiones', evitar: 'Solo lista de tareas; mostrar el porqué' },
+    { nombre: 'Clientes o aliados potenciales', busca: 'Evidencia de que entiendes su problema', evitar: 'Vender; mostrar el proceso' }
   ],
   constraints: [
     'No inventar datos: todo número, decisión o cita debe venir de lo que ella cuenta.',

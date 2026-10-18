@@ -1,19 +1,23 @@
 /**
  * Backend de Building in Public (Google Apps Script, contenedor de un Google Sheet).
- * Hace tres cosas: login por correo, base de datos en el Sheet y proxy a la IA con límite diario.
- * Las claves de la IA viven en Propiedades del script (nunca en el navegador ni en el repo).
+ * Hace tres cosas: login por correo (con auto-registro de pruebas), base de datos en el Sheet
+ * y proxy a la IA con límites. Las claves de la IA viven en Propiedades del script.
  * Pasos de instalación: ver DESPLIEGUE.md
+ *
+ * Tipos de usuario (pestaña Usuarios, columna "origen"):
+ *  - prueba  → se crea sola cuando alguien escribe su correo. Total de TRIAL_LIMIT usos (2), sin audio.
+ *  - (vacío) → lo agregas tú a mano. Límite diario (DAILY_AI_LIMIT o limite_diario) y código opcional.
  */
 
 var TABS = { USERS: 'Usuarios', USE: 'Uso', DATA: 'Datos' };
 var HEADERS = {
-  Usuarios: ['correo', 'nombre', 'activo', 'limite_diario', 'codigo', 'creado'],
+  Usuarios: ['correo', 'nombre', 'activo', 'limite_diario', 'codigo', 'creado', 'origen'],
   Uso: ['fecha', 'correo', 'tipo', 'conteo'],
   Datos: ['correo', 'coleccion', 'id', 'resumen', 'json', 'actualizado']
 };
 var COLLECTIONS = ['doc', 'memory', 'captures', 'posts', 'feedback', 'abiertos'];
 var MAX_SYSTEM = 60000, MAX_USER = 20000, MAX_TOKENS = 4000;
-var MAX_CELL = 49000, MAX_ITEMS = 2000, MAX_AUDIO_B64 = 14000000;
+var MAX_CELL = 49000, MAX_ITEMS = 2000, MAX_ITEMS_TRIAL = 100, MAX_AUDIO_B64 = 14000000;
 var TOKEN_DAYS = 30;
 
 // ---------- Utilidades ----------
@@ -29,7 +33,16 @@ function sheet_(name) {
 function today_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'); }
 function dateStr_(v) { return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(v); }
 function normEmail_(e) { return String(e || '').trim().toLowerCase(); }
-function validEmail_(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+/** Forma canónica: quita "+etiqueta" y, en Gmail, los puntos. Evita crear pruebas infinitas con alias de un mismo correo. */
+function canonEmail_(e) {
+  e = normEmail_(e);
+  var at = e.lastIndexOf('@'); if (at < 1) return e;
+  var local = e.slice(0, at).split('+')[0], dom = e.slice(at + 1);
+  if (dom === 'gmail.com' || dom === 'googlemail.com') { local = local.replace(/\./g, ''); dom = 'gmail.com'; }
+  return local + '@' + dom;
+}
+/** Debe empezar con letra o número (evita que una celda se interprete como fórmula). */
+function validEmail_(e) { return e.length <= 120 && /^[a-z0-9][^\s@]*@[^\s@]+\.[^\s@]+$/.test(e); }
 function withLock_(fn) {
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try { return fn(); } finally { lock.releaseLock(); }
@@ -37,7 +50,7 @@ function withLock_(fn) {
 function rows_(name) { var v = sheet_(name).getDataRange().getValues(); v.shift(); return v; }
 function safeText_(s) { s = String(s == null ? '' : s); return /^[=+\-@]/.test(s) ? "'" + s : s; }
 
-/** Ejecuta esto UNA vez (menú Ejecutar → setupSheets) para crear las pestañas. */
+/** Ejecuta esto (menú Ejecutar → setupSheets) para crear/actualizar las pestañas. Es seguro repetirlo: no borra datos. */
 function setupSheets() {
   var ss = ss_();
   Object.keys(HEADERS).forEach(function (name) {
@@ -46,25 +59,38 @@ function setupSheets() {
     sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight('bold');
     sh.setFrozenRows(1);
     if (name === 'Uso') sh.getRange(1, 1, 1000, 1).setNumberFormat('@');
+    if (name === 'Usuarios') sh.getRange(1, 1, 1000, h.length).setNumberFormat('@');
     if (name === 'Datos') sh.getRange(1, 1, 5000, h.length).setNumberFormat('@');
   });
-  return 'OK: pestañas Usuarios, Uso y Datos listas. Agrega correos en la pestaña Usuarios.';
+  return 'OK: pestañas Usuarios, Uso y Datos listas.';
 }
 
 // ---------- Usuarios y sesión ----------
 function findUser_(email) {
-  var sh = sheet_(TABS.USERS), v = sh.getDataRange().getValues();
+  var v = sheet_(TABS.USERS).getDataRange().getValues();
   for (var i = 1; i < v.length; i++) {
-    if (normEmail_(v[i][0]) === email) {
+    if (canonEmail_(v[i][0]) === email) {
       var lim = parseInt(v[i][3], 10);
       return {
         email: email, nombre: String(v[i][1] || '').trim(),
         activo: String(v[i][2] || '').trim().toUpperCase() !== 'NO',
-        limite: isNaN(lim) ? 0 : lim, codigo: String(v[i][4] || '').trim()
+        limite: isNaN(lim) ? 0 : lim, codigo: String(v[i][4] || '').trim(),
+        trial: String(v[i][6] || '').trim().toLowerCase() === 'prueba'
       };
     }
   }
   return null;
+}
+/** Registra automáticamente un correo nuevo como usuario de prueba (sin aprobación). */
+function registerTrial_(email) {
+  return withLock_(function () {
+    var existing = findUser_(email); if (existing) return existing;
+    var n = usageGet_('*reg', 'reg').n;
+    if (n >= num_('TRIAL_NEW_USERS_DAILY_LIMIT', 50)) throw fail_('full', 'Hoy se alcanzó el máximo de registros de prueba. Vuelve mañana.');
+    sheet_(TABS.USERS).appendRow([email, '', 'SI', '', '', new Date().toISOString(), 'prueba']);
+    usageSet_('*reg', 'reg', n + 1);
+    return findUser_(email);
+  });
 }
 function secret_() {
   var s = prop_('TOKEN_SECRET', '');
@@ -90,61 +116,82 @@ function authUser_(token) {
   return user;
 }
 
-// ---------- Límite diario ----------
+// ---------- Límites de uso ----------
+// Usuarios manuales: contador diario (fecha = hoy). Usuarios de prueba: contador total (fecha = "TOTAL").
+function dayFor_(user) { return user.trial ? 'TOTAL' : today_(); }
 function usageRows_() { return sheet_(TABS.USE).getDataRange().getValues(); }
-function usageGet_(email, tipo) {
-  var v = usageRows_(), d = today_();
+function usageGet_(email, tipo, day) {
+  var v = usageRows_(), d = day || today_();
   for (var i = 1; i < v.length; i++) {
     if (dateStr_(v[i][0]) === d && normEmail_(v[i][1]) === email && v[i][2] === tipo) return { row: i + 1, n: Number(v[i][3]) || 0 };
   }
   return { row: 0, n: 0 };
 }
-function usageSet_(email, tipo, n) {
-  var cur = usageGet_(email, tipo), sh = sheet_(TABS.USE);
+function usageSet_(email, tipo, n, day) {
+  var d = day || today_(), cur = usageGet_(email, tipo, d), sh = sheet_(TABS.USE);
   if (cur.row) sh.getRange(cur.row, 4, 1, 1).setValues([[n]]);
-  else sh.appendRow([today_(), email, tipo, n]);
+  else sh.appendRow([d, email, tipo, n]);
 }
 function limitFor_(user, tipo) {
+  if (user.trial) return tipo === 'stt' ? 0 : num_('TRIAL_LIMIT', 2);
   if (tipo === 'stt') return num_('DAILY_TRANSCRIBE_LIMIT', 2);
   return user.limite > 0 ? user.limite : num_('DAILY_AI_LIMIT', 2);
 }
 function usageInfo_(user) {
+  var day = dayFor_(user);
   return {
-    ai: { used: usageGet_(user.email, 'ai').n, limit: limitFor_(user, 'ai') },
-    stt: { used: usageGet_(user.email, 'stt').n, limit: limitFor_(user, 'stt') }
+    ai: { used: usageGet_(user.email, 'ai', day).n, limit: limitFor_(user, 'ai'), total: !!user.trial },
+    stt: { used: usageGet_(user.email, 'stt', day).n, limit: limitFor_(user, 'stt') }
   };
 }
-/** Reserva un uso antes de llamar a la IA; si la llamada falla se libera. */
+/** Reserva un uso antes de llamar a la IA; si la llamada falla se libera. Nada se descuenta si algún tope bloquea. */
 function reserve_(user, tipo) {
   return withLock_(function () {
-    var limit = limitFor_(user, tipo), cur = usageGet_(user.email, tipo).n;
-    if (cur >= limit) throw fail_('limit', 'Llegaste al límite de ' + limit + (tipo === 'ai' ? ' generaciones' : ' transcripciones') + ' por hoy. Vuelve mañana.');
+    var day = dayFor_(user), limit = limitFor_(user, tipo), cur = usageGet_(user.email, tipo, day).n;
+    if (cur >= limit) {
+      throw fail_('limit', user.trial ? 'Ya usaste tus ' + limit + ' pruebas gratuitas.'
+        : 'Llegaste al límite de ' + limit + (tipo === 'ai' ? ' generaciones' : ' transcripciones') + ' por hoy. Vuelve mañana.');
+    }
+    var t = 0, g = 0;
     if (tipo === 'ai') {
-      var g = usageGet_('*', 'ai').n, gl = num_('GLOBAL_DAILY_AI_LIMIT', 200);
-      if (g >= gl) throw fail_('limit', 'El servicio de prueba alcanzó su límite diario. Intenta mañana.');
+      if (user.trial) {
+        t = usageGet_('*trial', 'ai').n;
+        if (t >= num_('TRIAL_GLOBAL_DAILY_LIMIT', 30)) throw fail_('limit', 'Hoy se agotaron las pruebas gratuitas para todos. Vuelve mañana.');
+      }
+      g = usageGet_('*', 'ai').n;
+      if (g >= num_('GLOBAL_DAILY_AI_LIMIT', 200)) throw fail_('limit', 'El servicio alcanzó su límite diario. Intenta mañana.');
+      if (user.trial) usageSet_('*trial', 'ai', t + 1);
       usageSet_('*', 'ai', g + 1);
     }
-    usageSet_(user.email, tipo, cur + 1);
+    usageSet_(user.email, tipo, cur + 1, day);
     return cur + 1;
   });
 }
 function release_(user, tipo) {
   withLock_(function () {
-    var cur = usageGet_(user.email, tipo).n;
-    usageSet_(user.email, tipo, Math.max(0, cur - 1));
-    if (tipo === 'ai') usageSet_('*', 'ai', Math.max(0, usageGet_('*', 'ai').n - 1));
+    var day = dayFor_(user), cur = usageGet_(user.email, tipo, day).n;
+    usageSet_(user.email, tipo, Math.max(0, cur - 1), day);
+    if (tipo === 'ai') {
+      usageSet_('*', 'ai', Math.max(0, usageGet_('*', 'ai').n - 1));
+      if (user.trial) usageSet_('*trial', 'ai', Math.max(0, usageGet_('*trial', 'ai').n - 1));
+    }
   });
 }
 
 // ---------- Acciones ----------
+function userInfo_(user) { return { email: user.email, nombre: user.nombre, trial: user.trial }; }
+
 function login_(req) {
-  var email = normEmail_(req.email);
-  var denied = fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
-  if (!validEmail_(email)) throw denied;
+  var email = canonEmail_(req.email);
+  if (!validEmail_(email)) throw fail_('invalid', 'Escribe un correo válido.');
   var user = findUser_(email);
-  if (!user || !user.activo) throw denied;
+  if (!user) {
+    if (prop_('AUTO_REGISTER', 'SI').toUpperCase() === 'NO') throw fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
+    user = registerTrial_(email);
+  }
+  if (!user.activo) throw fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
   if (user.codigo && String(req.codigo || '').trim() !== user.codigo) throw fail_('code', 'El código de acceso no es correcto.');
-  return { ok: true, token: makeToken_(email), user: { email: email, nombre: user.nombre }, usage: usageInfo_(user) };
+  return { ok: true, token: makeToken_(email), user: userInfo_(user), usage: usageInfo_(user) };
 }
 
 function load_(user) {
@@ -153,14 +200,14 @@ function load_(user) {
   rows_(TABS.DATA).forEach(function (r) {
     if (normEmail_(r[0]) === user.email && out[r[1]]) { out[r[1]].push({ id: String(r[2]), json: String(r[4]) }); any = true; }
   });
-  return { ok: true, empty: !any, collections: out, user: { email: user.email, nombre: user.nombre }, usage: usageInfo_(user) };
+  return { ok: true, empty: !any, collections: out, user: userInfo_(user), usage: usageInfo_(user) };
 }
 
 function save_(user, req) {
-  var changes = req.changes || {}, colls = Object.keys(changes);
+  var changes = req.changes || {}, colls = Object.keys(changes), maxItems = user.trial ? MAX_ITEMS_TRIAL : MAX_ITEMS;
   colls.forEach(function (c) {
     if (COLLECTIONS.indexOf(c) < 0) throw fail_('bad', 'Colección no válida: ' + c);
-    if (!Array.isArray(changes[c]) || changes[c].length > MAX_ITEMS) throw fail_('bad', 'Demasiados elementos en ' + c);
+    if (!Array.isArray(changes[c]) || changes[c].length > maxItems) throw fail_('bad', 'Demasiados elementos en ' + c);
     changes[c].forEach(function (it) {
       if (!it || typeof it.id !== 'string' || typeof it.json !== 'string') throw fail_('bad', 'Dato mal formado en ' + c);
       if (it.json.length > MAX_CELL) throw fail_('big', 'Un elemento de "' + c + '" es demasiado largo para guardarse (máx. ' + MAX_CELL + ' caracteres).');
@@ -209,6 +256,7 @@ function ai_(user, req) {
 }
 
 function transcribe_(user, req) {
+  if (user.trial) throw fail_('trial', 'La subida de audio no está disponible en la prueba. Usa el botón Dictar.');
   var b64 = String(req.audio || '');
   if (!b64 || b64.length > MAX_AUDIO_B64) throw fail_('bad', 'El audio está vacío o es demasiado grande (máx. ~10 MB).');
   var key = prop_('OPENAI_API_KEY', '');
