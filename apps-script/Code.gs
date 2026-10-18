@@ -180,6 +180,8 @@ function release_(user, tipo) {
 }
 
 // ---------- Acciones ----------
+/** Datos de contacto para el aviso de "se acabaron las pruebas". Viven en Propiedades del script: no se guardan en el repo. */
+function contactInfo_() { return { text: prop_('CONTACT_TEXT', ''), url: safeUrl_(prop_('CONTACT_URL', '')) }; }
 function userInfo_(user) { return { email: user.email, nombre: user.nombre, trial: user.trial }; }
 
 function login_(req) {
@@ -192,7 +194,7 @@ function login_(req) {
   }
   if (!user.activo) throw fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
   if (user.codigo && String(req.codigo || '').trim() !== user.codigo) throw fail_('code', 'El código de acceso no es correcto.');
-  return { ok: true, token: makeToken_(email), user: userInfo_(user), usage: usageInfo_(user) };
+  return { ok: true, token: makeToken_(email), user: userInfo_(user), usage: usageInfo_(user), contact: contactInfo_() };
 }
 
 function load_(user) {
@@ -201,7 +203,7 @@ function load_(user) {
   rows_(TABS.DATA).forEach(function (r) {
     if (normEmail_(r[0]) === user.email && out[r[1]]) { out[r[1]].push({ id: String(r[2]), json: String(r[4]) }); any = true; }
   });
-  return { ok: true, empty: !any, collections: out, user: userInfo_(user), usage: usageInfo_(user) };
+  return { ok: true, empty: !any, collections: out, user: userInfo_(user), usage: usageInfo_(user), contact: contactInfo_() };
 }
 
 function save_(user, req) {

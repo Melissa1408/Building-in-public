@@ -67,6 +67,7 @@ Las variables están descritas en [`.env.example`](.env.example).
 | `EMAIL_FOOTER_TEXT` | No | Texto corto bajo tu nombre. |
 | `EMAIL_REPLY_TO` | No | Dirección a la que llegan las respuestas. |
 | `SITE_URL` | No | URL de la página; aparece como "Seguir probando". |
+| `CONTACT_TEXT` / `CONTACT_URL` | No | Mensaje y enlace que se muestran cuando alguien agota sus pruebas. Los entrega el servidor: **no los pongas en `js/config.js`** (es público). |
 | `EMAIL_DAILY_LIMIT` | No (30) | Correos por día entre todos (Gmail personal permite unos 100). |
 | `SHEET_ID` | No | Solo si el script no se creó desde el propio Sheet. |
 | `TOKEN_SECRET` | No | Firma de sesiones; si falta se genera solo. |
@@ -194,7 +195,7 @@ Apps Script gratuito permite unas 20 000 llamadas externas (`UrlFetch`) y 6 hora
 ## Probar sin Google (desarrollo)
 El mismo `Code.gs` corre en memoria con Google simulado:
 ```bash
-node apps-script/test/test.js          # 37 pruebas: login, auto-registro, datos, límites, correo, seguridad
+node apps-script/test/test.js          # 38 pruebas: login, auto-registro, datos, límites, correo, seguridad
 node apps-script/test/dev-backend.js   # servidor local en :8787 (cualquier correo se auto-registra)
 node tools/serve.js                    # la página en :5173
 ```

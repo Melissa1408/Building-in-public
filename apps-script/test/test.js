@@ -145,9 +145,9 @@ t('prueba: 2 usos EN TOTAL (no por día) y luego se bloquea con mensaje claro', 
   const tk2 = login(rt, 'visita@example.com').token; assert.strictEqual(ask(rt, tk2).code, 'limit');
 });
 t('prueba: alias del mismo correo (+etiqueta, puntos de Gmail) comparten el cupo', () => {
-  const rt = auto(); const a = login(rt, 'mel.bauto@gmail.com').token;
+  const rt = auto(); const a = login(rt, 'ana.perez@gmail.com').token;
   ask(rt, a); ask(rt, a);
-  const b = login(rt, 'melbauto+otra@gmail.com').token, c = login(rt, 'M.E.L.Bauto@googlemail.com').token;
+  const b = login(rt, 'anaperez+otra@gmail.com').token, c = login(rt, 'A.N.A.Perez@googlemail.com').token;
   assert.strictEqual(ask(rt, b).code, 'limit'); assert.strictEqual(ask(rt, c).code, 'limit');
   assert.strictEqual(userRows(rt).filter((r) => r[6] === 'prueba').length, 1);
 });
@@ -187,7 +187,7 @@ t('prueba: guarda y lee datos, con tope de elementos por colección', () => {
 });
 
 // ---------- Resumen por correo ----------
-const mailProps = { EMAIL_LINKEDIN_URL: 'https://www.linkedin.com/in/ejemplo', EMAIL_FROM_NAME: 'Melissa', SITE_URL: 'https://ejemplo.github.io/bip/', EMAIL_FOOTER_TEXT: 'Si te sirvió, conversemos.' };
+const mailProps = { EMAIL_LINKEDIN_URL: 'https://www.linkedin.com/in/ejemplo', EMAIL_FROM_NAME: 'Nombre Ejemplo', SITE_URL: 'https://ejemplo.github.io/bip/', EMAIL_FOOTER_TEXT: 'Si te sirvió, conversemos.' };
 function withPosts(rt, tk, n, extra) {
   const caps = [], posts = [];
   for (let i = 1; i <= n; i++) {
@@ -206,7 +206,7 @@ t('correo: envía lo que escribió + los posts + tus redes, a su propia direcci�
   const r = rt.post({ action: 'send_summary', token: tk });
   assert.ok(r.ok && r.count === 2 && r.usage.mail.sent === true && r.sentTo === 'visita@example.com');
   assert.strictEqual(rt.calls.mail.length, 1); const m = rt.calls.mail[0];
-  assert.strictEqual(m.to, 'visita@example.com'); assert.strictEqual(m.subject, 'Tus posts de Building in Public'); assert.strictEqual(m.name, 'Melissa');
+  assert.strictEqual(m.to, 'visita@example.com'); assert.strictEqual(m.subject, 'Tus posts de Building in Public'); assert.strictEqual(m.name, 'Nombre Ejemplo');
   for (const s of ['Lo que escribí número 1', 'Lo que escribí número 2', 'Hook 1', 'Cuerpo del post 2']) { assert.ok(m.body.includes(s), 'texto: ' + s); assert.ok(m.htmlBody.includes(s), 'html: ' + s); }
   assert.ok(m.htmlBody.includes('href="https://www.linkedin.com/in/ejemplo"') && m.body.includes('LinkedIn: https://www.linkedin.com/in/ejemplo'));
   assert.ok(m.body.includes('Si te sirvió, conversemos.') && m.htmlBody.includes('Seguir probando'));
@@ -254,5 +254,12 @@ t('correo: usuarios manuales pueden pedirlo una vez al día; pruebas, una sola v
   assert.ok(rt.tabs.Uso.cells.some((r) => r && r[1] === 'ana@example.com' && r[2] === 'mail' && r[0] !== 'TOTAL'));
 });
 t('correo: sin sesión no se puede pedir', () => { assert.strictEqual(fresh().post({ action: 'send_summary' }).code, 'auth'); });
+
+t('contacto: el servidor entrega CONTACT_TEXT/URL (solo https) para el aviso de límite', () => {
+  const rt = auto({ CONTACT_TEXT: 'Escríbeme', CONTACT_URL: 'https://www.linkedin.com/in/ejemplo' });
+  const r = login(rt, 'v@x.com'); assert.deepStrictEqual(r.contact, { text: 'Escríbeme', url: 'https://www.linkedin.com/in/ejemplo' });
+  assert.deepStrictEqual(rt.post({ action: 'load', token: r.token }).contact, r.contact);
+  assert.strictEqual(login(auto({ CONTACT_URL: 'javascript:alert(1)' }), 'w@x.com').contact.url, '');
+});
 
 console.log('\n' + n + ' pruebas OK');

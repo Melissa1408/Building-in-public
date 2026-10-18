@@ -81,7 +81,7 @@
 
   async function pullState() {
     const d = await API.call('load');
-    ui.usage = d.usage; session.nombre = d.user.nombre; session.trial = !!d.user.trial;
+    ui.usage = d.usage; ui.contact = d.contact || null; session.nombre = d.user.nombre; session.trial = !!d.user.trial;
     if (d.empty) {
       S = defaults(); if (d.user.nombre) S.profile.nombre = d.user.nombre;
       lastSent = {}; ui.ready = true; save();       // cuenta nueva: sube la base inicial
@@ -101,7 +101,7 @@
     msg.textContent = 'Verificando…'; btn.disabled = true; API.token = '';
     try {
       const r = await API.call('login', { email, codigo });
-      session = { token: r.token, email: r.user.email, nombre: r.user.nombre, trial: !!r.user.trial }; API.token = r.token; ui.usage = r.usage; ui.ready = false;
+      session = { token: r.token, email: r.user.email, nombre: r.user.nombre, trial: !!r.user.trial }; API.token = r.token; ui.usage = r.usage; ui.contact = r.contact || null; ui.ready = false;
       msg.textContent = 'Cargando tus datos…';
       try { await pullState(); } catch (e) { session = null; API.token = ''; throw e; }
       try { localStorage.setItem(SKEY, JSON.stringify(session)); } catch (e) { /* sin sesión persistente */ }
@@ -231,7 +231,8 @@
   }
   function limitBanner() {
     const u = ui.usage; if (!u || u.ai.used < u.ai.limit) return '';
-    const c = window.BIP_CONFIG || {};
+    const cfg = window.BIP_CONFIG || {}, sv = ui.contact || {};
+    const c = (sv.text || sv.url) ? { CONTACT_TEXT: sv.text, CONTACT_URL: sv.url } : cfg;   // el servidor manda el contacto; config.js es solo respaldo
     const link = c.CONTACT_URL && /^https:\/\//.test(c.CONTACT_URL) ? ` <a href="${esc(c.CONTACT_URL)}" target="_blank" rel="noopener">${esc(c.CONTACT_TEXT || 'Escríbeme')}</a>` : (c.CONTACT_TEXT ? ' ' + esc(c.CONTACT_TEXT) : '');
     return `<section class="card limit"><strong>${limitText()}</strong>${link}<p class="muted">Tus posts siguen aquí para copiar o editar.</p></section>`;
   }

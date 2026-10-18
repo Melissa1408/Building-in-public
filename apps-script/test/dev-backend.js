@@ -3,7 +3,7 @@
 const http = require('http');
 const { createRuntime } = require('./mock');
 const fs = require('fs'), os = require('os'), path = require('path');
-const rt = createRuntime({ props: { DAILY_AI_LIMIT: '2', EMAIL_FROM_NAME: 'Melissa (ejemplo)', EMAIL_LINKEDIN_URL: 'https://www.linkedin.com/in/tu-perfil', EMAIL_FOOTER_TEXT: 'Si te sirvió, conversemos.', SITE_URL: 'https://tu-usuario.github.io/Building-in-public/' } });
+const rt = createRuntime({ props: { DAILY_AI_LIMIT: '2', EMAIL_FROM_NAME: 'Nombre Ejemplo', EMAIL_LINKEDIN_URL: 'https://www.linkedin.com/in/tu-perfil', EMAIL_FOOTER_TEXT: 'Si te sirvió, conversemos.', SITE_URL: 'https://tu-usuario.github.io/Building-in-public/' } });
 const MAIL_FILE = path.join(os.tmpdir(), 'bip-ultimo-correo.html');
 let mailsSeen = 0;
 rt.setup();
