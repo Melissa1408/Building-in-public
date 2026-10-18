@@ -235,7 +235,7 @@
     if (!(window.BIP_CONFIG || {}).API_URL) return `<section class="card login"><h2>Falta configurar el servidor</h2>
       <p>Esta página necesita la URL de tu Web App de Apps Script. Ábrela en <code>js/config.js</code> y pégala en <code>API_URL</code>. Los pasos están en <strong>DESPLIEGUE.md</strong>.</p></section>`;
     return `<section class="card login"><h2>Prueba el generador de posts</h2>
-      <p class="muted">Escribe tu correo y empieza: sin contraseña y sin esperar aprobación. Tienes <strong>2 pruebas gratis</strong>. Guardamos tu correo solo para contarlas.</p>
+      <p class="muted">Escribe tu correo y empieza: sin contraseña y sin esperar aprobación. Tienes <strong>2 pruebas gratis</strong>. Usamos tu correo para contar tus pruebas y enviarte lo que generes.</p>
       <label>Correo<input id="lgEmail" type="email" autocomplete="email" placeholder="tu@correo.com"></label>
       <label id="lgCodeWrap" hidden>Código de acceso<input id="lgCode" type="password" autocomplete="off"></label>
       <div class="row"><button class="btn primary" id="lgBtn" data-act="login">Empezar</button></div>
@@ -382,7 +382,7 @@ $1</section>`}
     <section class="card"><h3>Ajustes</h3><div class="grid2">
       <label>Idioma de dictado<select data-s="lang">${['es-419', 'es-MX', 'es-ES', 'es-CO', 'es-AR', 'en-US'].map((l) => `<option ${l === st.lang ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
       <h4>Cadencia (3 por semana)</h4>${st.slots.map((s, i) => `<div class="row"><select data-sl="${i}.dow">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === s.dow ? 'selected' : ''}>${DIAS[d]}</option>`).join('')}</select><input data-sl="${i}.tipo" value="${esc(s.tipo)}"></div>`).join('')}
-      <p class="muted">Todo se guarda solo, unos segundos después de cada cambio (mira el aviso de arriba), en la base de datos de esta herramienta y asociado a tu correo. <strong>No se crea ninguna hoja en tu Google.</strong> Si quieres forzarlo:</p>
+      <p class="muted">Todo se guarda solo, unos segundos después de cada cambio (mira el aviso de arriba), y asociado a tu correo. Si quieres forzarlo:</p>
       <div class="row wrap"><button class="btn primary" data-act="syncnow">Guardar ahora</button><button class="btn" data-act="export">Exportar respaldo</button><label class="btn file">Importar respaldo<input type="file" id="imp" accept="application/json" hidden></label>${legacyExists() ? '<button class="btn" data-act="legacy">Importar datos de la versión anterior (este navegador)</button>' : ''}<button class="btn ghost danger" data-act="reset">Borrar todo</button></div>
       <p class="muted">Importar un respaldo sube esos datos a tu cuenta.</p></section>`;
   }
@@ -523,7 +523,7 @@ $1</section>`}
       if (a === 'fbdel') { S.feedback = S.feedback.filter((m) => m.id !== id); save(); return render(); }
       if (a === 'abre') { const ab = S.abiertos.find((x) => x.id === id), v = $(`[data-ab="${id}"]`).value.trim(); if (!v) return; ab.resuelto = true; ab.respuesta = v; S.memory.push({ id: uid(), fecha: today(), texto: `${ab.dato}: ${v}` }); save(); return render(); }
       if (a === 'export') { const b = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }); const l = document.createElement('a'); l.href = URL.createObjectURL(b); l.download = `bip-respaldo-${today()}.json`; l.click(); return; }
-      if (a === 'reset') { if (confirm('Esto borra TODOS tus datos (memoria, posts y ejemplos), también en Google Sheets. ¿Seguro?')) { const n = S.profile.nombre; S = defaults(); S.profile.nombre = n; save(); await doSync(); render(); } return; }
+      if (a === 'reset') { if (confirm('Esto borra TODOS tus datos (memoria, posts y ejemplos). ¿Seguro?')) { const n = S.profile.nombre; S = defaults(); S.profile.nombre = n; save(); await doSync(); render(); } return; }
     } catch (err) { handleErr(err); }
   });
 

@@ -50,5 +50,5 @@ En *Memoria → Público* elige a quién le hablas (de 1 a 3 funciona mejor). Ca
 
 ## Tus pruebas y tus datos
 - Cada correo tiene **2 pruebas gratuitas en total**. Cuentan generar un post, *Responder y mejorar* y *Otro hook*. Editar, copiar, guardar en el calendario y rellenar la memoria **no cuentan como uso**.
-- Tus posts y tu memoria se guardan **asociados a tu correo**, en la base de datos de esta herramienta (una hoja de cálculo del creador, que puede verlos). **No se crea ninguna hoja en tu Google.** En *Memoria → Borrar todo* puedes eliminarlos.
-- Cuando termines tus pruebas, puedes pedir por correo tus posts: te llegan lo que escribiste y lo que se generó.
+- Tus posts y tu memoria quedan asociados a tu correo para que puedas volver a ellos y para poder enviártelos. En *Memoria → Borrar todo* puedes eliminarlos.
+- **Se te envía lo generado:** cuando quieras (por ejemplo, al acabar tus pruebas) pulsa *Enviarme por correo* y recibirás lo que escribiste y los posts que se generaron, para que te los lleves y los publiques cuando quieras.
