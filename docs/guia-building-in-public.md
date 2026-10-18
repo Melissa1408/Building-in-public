@@ -46,9 +46,9 @@ No tienes que elegir un formato: la herramienta escoge el que mejor calza con lo
 - **Sin enlaces en el cuerpo.** Si quieres compartir uno, ponlo en un comentario.
 
 ## Tu público
-En *Memoria → Público* elige a quién le hablas (de 1 a 3 funciona mejor). Cada público busca cosas distintas, y el post se adapta a eso.
+Antes de generar, en *Hoy* puedes elegir a quién le hablas (hasta 2). Cada público busca cosas distintas, y el post se adapta a eso. Si no eliges ninguno, el post se escribe para un público general.
 
 ## Tus pruebas y tus datos
-- Cada correo tiene **2 pruebas gratuitas en total**. Cuentan generar un post, *Responder y mejorar* y *Otro hook*. Editar, copiar, guardar en el calendario y rellenar la memoria **no cuentan como uso**.
-- Tus posts y tu memoria quedan asociados a tu correo para que puedas volver a ellos y para poder enviártelos. En *Memoria → Borrar todo* puedes eliminarlos.
+- Cada correo tiene **2 pruebas gratuitas en total**. Cuentan generar un post, *Responder y mejorar* y *Otro hook*. Editar, copiar y guardar en el calendario **no cuentan como uso**.
+- Tus posts quedan asociados a tu correo para que puedas volver a ellos y para poder enviártelos. Con el enlace *Borrar mis datos* (al pie de la página) puedes eliminarlos.
 - **Se te envía lo generado:** cuando quieras (por ejemplo, al acabar tus pruebas) pulsa *Enviarme por correo* y recibirás lo que escribiste y los posts que se generaron, para que te los lleves y los publiques cuando quieras.

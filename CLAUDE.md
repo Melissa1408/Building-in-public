@@ -5,6 +5,7 @@ Web estática (vanilla JS, sin build) + backend en Google Apps Script (`apps-scr
 ## Reglas
 - **Cero datos personales ni claves en el repo.** Los datos viven en el Google Sheet (pestañas Usuarios/Uso/Datos); las claves de IA, en Propiedades del script. Nunca commitear `.env`, `apps-script/Setup.local.gs`, respaldos ni `private/`.
 - Login por correo con **auto-registro**: un correo nuevo se crea solo como usuario de prueba (`origen = prueba`, `TRIAL_LIMIT` = 2 usos en total, sin audio). Usuarios manuales: cupo diario y código opcional. Todos los límites viven en el servidor; no moverlos al cliente.
+- La pestaña **Memoria** es solo para usuarios manuales (`session.trial = false`). Los de prueba no la ven: tienen selector de público en Hoy y *Borrar mis datos*. No quitar ese enlace: es su única forma de eliminar lo guardado.
 - Prompt y valores por defecto deben ser neutros (sin industria ni rol asumidos); lo específico de una persona va en su perfil/memoria. Preguntas de seguimiento: máximo 2, de una línea.
 - Tras tocar `apps-script/Code.gs`: correr `node apps-script/test/test.js` y publicar nueva versión de la Web App (ver DESPLIEGUE.md).
 - `js/guia.js` es **generado** desde `docs/guia-building-in-public.md` (`node tools/build-guia.js`). Edita el .md, no el .js.

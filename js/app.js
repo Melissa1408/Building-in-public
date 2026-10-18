@@ -249,6 +249,8 @@
   function renderHeader() {
     const nav = $('nav'), bar = $('#userbar'), u = ui.usage;
     nav.hidden = !(session && ui.ready);
+    const memTab = nav.querySelector('[data-tab=memoria]'); if (memTab) memTab.hidden = !!(session && session.trial);
+    const foot = $('#foot'); if (foot) foot.innerHTML = session && ui.ready && session.trial ? '<a href="#" data-act="reset">Borrar mis datos</a>' : '';
     bar.innerHTML = session ? `<span id="sync" class="sync"></span>${u ? (u.ai.total ? `<span class="b" title="Pruebas gratuitas con IA">Pruebas: ${Math.max(0, u.ai.limit - u.ai.used)} de ${u.ai.limit}</span>` : `<span class="b" title="Generaciones con IA de hoy">IA hoy: ${u.ai.used}/${u.ai.limit}</span>`) : ''}<span class="muted email">${esc(session.email)}</span><button class="btn sm ghost" data-act="logout">Salir</button>` : '';
     paintSync();
   }
@@ -274,6 +276,11 @@
       <p class="muted">Te enviamos a <strong>${esc(session.email)}</strong> lo que escribiste y los posts que generamos (hasta 5), para que los copies y los publiques cuando quieras.</p>
       <div class="row"><button class="btn primary" data-act="sendmail">Enviarme por correo</button></div></section>`;
   }
+  const isDefaultAud = () => S.audiences.length === KB.defaults.audiencias.length && KB.defaults.audiencias.every((d) => S.audiences.some((a) => a.nombre === d.nombre));
+  function audChips() {
+    const chosen = isDefaultAud() ? [] : S.audiences.map((a) => a.nombre);
+    return `<div class="audchips"><div class="muted">¿A quién le hablas? <span>(opcional; elige hasta 2)</span></div>${KB.catalogoAudiencias.map((c, i) => `<label class="chip2 ${chosen.includes(c.nombre) ? 'on' : ''}"><input type="checkbox" data-audquick="${i}" ${chosen.includes(c.nombre) ? 'checked' : ''}>${esc(c.nombre)}</label>`).join('')}</div>`;
+  }
   function viewHoy() {
     const last = S.posts.find((p) => p.id === ui.lastPostId) || S.posts[S.posts.length - 1];
     const nav = S.posts.length > 1 && last ? `<div class="postnav"><span class="muted">Tus posts:</span>${S.posts.slice(-6).map((x) => `<button class="btn sm ${x.id === last.id ? 'primary' : ''}" data-act="showpost" data-id="${x.id}" title="${esc((x.hook || '').slice(0, 90))}">Post ${S.posts.indexOf(x) + 1}</button>`).join('')}</div>` : '';
@@ -281,6 +288,7 @@
       <h2>¿Qué aprendiste o decidiste hoy?</h2>
       <p class="muted">Cuéntalo como se lo contarías a alguien. Dicta, sube un audio o escribe. Mientras más natural, mejor suena el post.</p>
       ${!S.profile.proyecto ? `<label>¿Qué estás construyendo o aprendiendo? <span class="muted">(opcional; ayuda a que el post suene a ti)</span><input data-p="proyecto" placeholder="Ej.: una tienda online, mi primer bot, un curso de datos…"></label>` : ''}
+      ${session && session.trial ? audChips() : ''}
       ${window.GUIA ? `<details class="receta"><summary>¿No sabes qué contar? Receta de 60 segundos</summary>${GUIA.rapida}<p><a href="#" data-tab="guia">Ver la guía completa</a></p></details>` : ''}
       <textarea id="txt" rows="6" placeholder="Hoy descubrí que… / Decidí X en vez de Y porque…  (2 o 3 frases bastan)"></textarea>
       <div class="row wrap">
@@ -388,6 +396,7 @@ $1</section>`}
   }
 
   function render() {
+    if (session && session.trial && ui.tab === 'memoria') ui.tab = 'hoy';   // los visitantes de prueba no tienen Memoria
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === ui.tab));
     renderHeader();
     const v = !session ? viewLogin() : !ui.ready ? viewLoading() : { hoy: viewHoy, calendario: viewCalendario, posts: viewPosts, memoria: viewMemoria, guia: viewGuia }[ui.tab]();
@@ -523,7 +532,7 @@ $1</section>`}
       if (a === 'fbdel') { S.feedback = S.feedback.filter((m) => m.id !== id); save(); return render(); }
       if (a === 'abre') { const ab = S.abiertos.find((x) => x.id === id), v = $(`[data-ab="${id}"]`).value.trim(); if (!v) return; ab.resuelto = true; ab.respuesta = v; S.memory.push({ id: uid(), fecha: today(), texto: `${ab.dato}: ${v}` }); save(); return render(); }
       if (a === 'export') { const b = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }); const l = document.createElement('a'); l.href = URL.createObjectURL(b); l.download = `bip-respaldo-${today()}.json`; l.click(); return; }
-      if (a === 'reset') { if (confirm('Esto borra TODOS tus datos (memoria, posts y ejemplos). ¿Seguro?')) { const n = S.profile.nombre; S = defaults(); S.profile.nombre = n; save(); await doSync(); render(); } return; }
+      if (a === 'reset') { if (confirm('Esto borra tus posts y todo lo que se guardó de ti. Las pruebas que ya usaste no se recuperan. ¿Seguro?')) { const n = S.profile.nombre; S = defaults(); S.profile.nombre = n; save(); await doSync(); render(); } return; }
     } catch (err) { handleErr(err); }
   });
 
@@ -532,6 +541,14 @@ $1</section>`}
     if (t.dataset.act === 'filtro') { ui.filtro = t.value; return render(); }
     if (t.id === 'aud') { const f = t.files[0]; if (!f) return; setStatus('Transcribiendo audio…'); AI.transcribe(S, f).then((txt) => { const box = $('#txt'); box.value += (box.value ? '\n' : '') + txt; setStatus(''); }).catch((er) => { setStatus(''); handleErr(er); }); return; }
     if (t.id === 'imp') { const f = t.files[0]; if (!f) return; f.text().then((s) => importJson(s, 'Respaldo importado y guardado en tu cuenta.')); return; }
+    if (t.dataset.audquick !== undefined) {
+      const c = KB.catalogoAudiencias[+t.dataset.audquick];
+      let chosen = isDefaultAud() ? [] : S.audiences.slice();
+      if (t.checked) { if (chosen.length >= 2) { toast('Elige hasta 2 públicos.'); t.checked = false; return; } chosen.push({ ...c }); }
+      else chosen = chosen.filter((a) => a.nombre !== c.nombre);
+      S.audiences = chosen.length ? chosen : KB.defaults.audiencias.map((d) => ({ ...d }));
+      save(); return render();
+    }
     if (t.dataset.audcat !== undefined) {
       const c = KB.catalogoAudiencias[+t.dataset.audcat];
       if (t.checked) { if (!S.audiences.some((a) => a.nombre === c.nombre)) S.audiences.push({ ...c }); } else S.audiences = S.audiences.filter((a) => a.nombre !== c.nombre);

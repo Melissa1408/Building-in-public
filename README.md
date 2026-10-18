@@ -8,7 +8,7 @@ Web estática (HTML + JS, sin build ni servidor) para convertir lo que una perso
 - **Hoy**: captura rápida y generación. Si falta un dato esencial, muestra la pregunta exacta y regenera con la respuesta.
 - **Calendario**: 3 huecos por semana (editables), arrastrar y soltar, alertas de rotación de formato y público.
 - **Posts**: borrador → editado → publicado. Se puede volver a versiones anteriores del hook o del texto, y guardar el post en el calendario con un botón.
-- **Memoria**: perfil, público (se elige de una lista), notas de lo que sabe de ti y ajustes. Es opcional y no gasta usos de IA.
+- **Memoria** (solo cuentas que tú agregas a mano, p. ej. una clienta): perfil, público, notas de lo que sabe de ti y ajustes. Los visitantes de prueba no la ven: eligen a quién le hablan (hasta 2) desde *Hoy* y tienen un enlace *Borrar mis datos* al pie.
 - **Guía**: qué contar, la receta de 60 segundos y las reglas de oro. Se genera desde [docs/guia-building-in-public.md](docs/guia-building-in-public.md), que también sirve para compartir.
 
 ## Cómo funciona

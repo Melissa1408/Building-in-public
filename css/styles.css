@@ -72,3 +72,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px}
 .guia{max-width:720px}.guia h3{margin:22px 0 6px}.guia blockquote{margin:10px 0;padding:6px 14px;border-left:4px solid var(--ac);background:var(--card);border-radius:0 8px 8px 0}
 .guia-t{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}.guia-t th,.guia-t td{border:1px solid var(--bd);padding:8px 10px;text-align:left;vertical-align:top}.guia-t th{background:var(--card)}
 @media (max-width:700px){.grid3e{grid-template-columns:1fr}.audrow{grid-template-columns:1fr}}
+.audchips{margin:10px 0}
+.chip2{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bd);border-radius:99px;padding:4px 12px;margin:4px 6px 0 0;font-size:13px;color:var(--tx);cursor:pointer;background:var(--bg)}
+.chip2 input{display:none}.chip2.on{border-color:var(--ac);background:var(--ac);color:var(--ac-tx)}
+.foot{max-width:920px;margin:0 auto;padding:0 16px 28px;text-align:center;font-size:13px}.foot a{color:var(--mu)}
