@@ -141,7 +141,8 @@ function usageInfo_(user) {
   var day = dayFor_(user);
   return {
     ai: { used: usageGet_(user.email, 'ai', day).n, limit: limitFor_(user, 'ai'), total: !!user.trial },
-    stt: { used: usageGet_(user.email, 'stt', day).n, limit: limitFor_(user, 'stt') }
+    stt: { used: usageGet_(user.email, 'stt', day).n, limit: limitFor_(user, 'stt') },
+    mail: { sent: usageGet_(user.email, 'mail', day).n > 0 }
   };
 }
 /** Reserva un uso antes de llamar a la IA; si la llamada falla se libera. Nada se descuenta si algún tope bloquea. */
@@ -276,6 +277,87 @@ function transcribe_(user, req) {
   return { ok: true, text: text, usage: usageInfo_(user) };
 }
 
+// ---------- Resumen por correo ("descarga" para llevarse) ----------
+// Se envía SOLO cuando la persona lo pide, a la dirección con la que entró, UNA vez (pruebas: una vez en total;
+// usuarios manuales: una vez al día). El contenido sale de lo que ya está guardado en el Sheet, no de la petición.
+var MAX_MAIL_POSTS = 5;
+
+function esc_(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function br_(s) { return esc_(s).replace(/\r?\n/g, '<br>'); }
+function safeUrl_(u) { u = String(u || '').trim(); return /^https:\/\/[^\s"'<>]+$/.test(u) ? u : ''; }
+function userItems_(user, coll) {
+  var out = [];
+  rows_(TABS.DATA).forEach(function (r) {
+    if (normEmail_(r[0]) === user.email && r[1] === coll) { try { out.push(JSON.parse(r[4])); } catch (e) {} }
+  });
+  return out;
+}
+function reserveMail_(user) {
+  withLock_(function () {
+    var day = dayFor_(user);
+    if (usageGet_(user.email, 'mail', day).n >= 1) throw fail_('sent', 'Ya te enviamos tus posts a ' + user.email + '. Revisa tu bandeja y la carpeta de spam.');
+    var g = usageGet_('*', 'mail').n;
+    if (g >= num_('EMAIL_DAILY_LIMIT', 30) || MailApp.getRemainingDailyQuota() <= 0) throw fail_('limit', 'Hoy se alcanzó el máximo de correos. Inténtalo mañana.');
+    usageSet_('*', 'mail', g + 1);
+    usageSet_(user.email, 'mail', 1, day);
+  });
+}
+function releaseMail_(user) {
+  withLock_(function () {
+    usageSet_(user.email, 'mail', 0, dayFor_(user));
+    usageSet_('*', 'mail', Math.max(0, usageGet_('*', 'mail').n - 1));
+  });
+}
+function buildEmail_(user, posts, caps) {
+  var from = prop_('EMAIL_FROM_NAME', 'Building in Public'), li = safeUrl_(prop_('EMAIL_LINKEDIN_URL', '')),
+      site = safeUrl_(prop_('SITE_URL', '')), foot = prop_('EMAIL_FOOTER_TEXT', '');
+  var hi = user.nombre ? 'Hola ' + user.nombre + ',' : 'Hola,';
+  var intro = 'Aquí tienes lo que escribiste y los posts que generamos juntos. Cópialos y publícalos cuando quieras: son tuyos.';
+  var text = [hi, '', intro, ''], html = [];
+  posts.forEach(function (p, i) {
+    var cap = caps[p.captureId], mine = cap ? String(cap.texto).slice(0, 1500) : '';
+    var post = (p.hook ? p.hook + '\n\n' : '') + String(p.cuerpo || '').slice(0, 3000);
+    text.push('─── Post ' + (i + 1) + (p.formato ? ' · ' + p.formato : '') + ' ───');
+    if (mine) text.push('LO QUE ESCRIBISTE:', mine, '');
+    text.push('POST GENERADO:', post, '');
+    html.push('<div style="margin:0 0 22px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6a7380;margin:0 0 8px">Post ' + (i + 1) + (p.formato ? ' · ' + esc_(p.formato) : '') + '</div>'
+      + (mine ? '<div style="font-size:12px;color:#6a7380;margin:0 0 4px">Lo que escribiste</div><div style="background:#f6f7f9;border-radius:8px;padding:12px 14px;font-size:14px;color:#444;margin:0 0 12px">' + br_(mine) + '</div>' : '')
+      + '<div style="font-size:12px;color:#6a7380;margin:0 0 4px">Post generado</div><div style="border:1px solid #e1e5ea;border-left:4px solid #2f5bea;border-radius:8px;padding:14px 16px;font-size:15px;line-height:1.55;color:#1b1f24">' + br_(post) + '</div></div>');
+  });
+  var links = [];
+  if (li) links.push('<a href="' + li + '" style="color:#2f5bea">LinkedIn</a>');
+  if (site) links.push('<a href="' + site + '" style="color:#2f5bea">Seguir probando</a>');
+  text.push('—', from);
+  if (foot) text.push(foot);
+  if (li) text.push('LinkedIn: ' + li);
+  if (site) text.push('Seguir probando: ' + site);
+  text.push('', 'Recibiste este correo porque esta dirección se usó en Building in Public. Si no fuiste tú, ignóralo: no volverás a recibir nada.');
+  var body = '<div style="font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1b1f24">'
+    + '<h2 style="margin:0 0 6px;font-size:20px">Tus posts de Building in Public</h2>'
+    + '<p style="margin:0 0 22px;color:#444;font-size:15px">' + esc_(hi) + '<br>' + esc_(intro) + '</p>' + html.join('')
+    + '<hr style="border:0;border-top:1px solid #e1e5ea;margin:26px 0 16px">'
+    + '<p style="margin:0 0 4px;font-size:15px"><strong>' + esc_(from) + '</strong></p>'
+    + (foot ? '<p style="margin:0 0 6px;font-size:14px;color:#444">' + br_(foot) + '</p>' : '')
+    + (links.length ? '<p style="margin:0 0 14px;font-size:14px">' + links.join(' · ') + '</p>' : '')
+    + '<p style="margin:0;font-size:12px;color:#8a93a0">Recibiste este correo porque esta dirección se usó en Building in Public. Si no fuiste tú, ignóralo: no volverás a recibir nada.</p></div>';
+  return { subject: 'Tus posts de Building in Public', text: text.join('\n'), html: body, name: from };
+}
+function sendSummary_(user) {
+  if (prop_('EMAIL_ENABLED', 'SI').toUpperCase() === 'NO') throw fail_('mail', 'El envío por correo no está disponible por ahora.');
+  var posts = userItems_(user, 'posts').filter(function (p) { return p && p.estado !== 'descartado' && (p.hook || p.cuerpo); });
+  if (!posts.length) throw fail_('none', 'Todavía no has generado ningún post.');
+  posts.sort(function (a, b) { return String(a.created || '').localeCompare(String(b.created || '')); });
+  posts = posts.slice(-MAX_MAIL_POSTS);
+  var caps = {}; userItems_(user, 'captures').forEach(function (c) { if (c && c.id) caps[c.id] = c; });
+  reserveMail_(user);
+  try {
+    var m = buildEmail_(user, posts, caps), opts = { to: user.email, subject: m.subject, body: m.text, htmlBody: m.html, name: m.name };
+    var reply = normEmail_(prop_('EMAIL_REPLY_TO', '')); if (validEmail_(reply)) opts.replyTo = reply;
+    MailApp.sendEmail(opts);
+  } catch (e) { releaseMail_(user); throw fail_('mail', 'No se pudo enviar el correo. Inténtalo más tarde.'); }
+  return { ok: true, sentTo: user.email, count: posts.length, usage: usageInfo_(user) };
+}
+
 function route_(req) {
   if (req.action === 'login') return login_(req);
   var user = authUser_(req.token);
@@ -284,6 +366,7 @@ function route_(req) {
     case 'save': return save_(user, req);
     case 'ai': return ai_(user, req);
     case 'transcribe': return transcribe_(user, req);
+    case 'send_summary': return sendSummary_(user);
     default: throw fail_('bad', 'Acción desconocida.');
   }
 }

@@ -5,7 +5,8 @@ const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = r
 function createRuntime(opts = {}) {
   const props = Object.assign({ ANTHROPIC_API_KEY: 'sk-test', OPENAI_API_KEY: 'sk-oa-test' }, opts.props || {});
   const tabs = {};
-  const calls = { fetch: [] };
+  const calls = { fetch: [], mail: [] };
+  let mailFail = false;
   let aiHandler = opts.ai || (() => ({ code: 200, body: { content: [{ type: 'text', text: '{"ok":true}' }] } }));
 
   class Range {
@@ -41,6 +42,10 @@ function createRuntime(opts = {}) {
       base64Decode: (s) => Array.from(Buffer.from(s, 'base64')),
       newBlob: (bytes) => ({ getDataAsString: () => Buffer.from(bytes).toString('utf8') })
     },
+    MailApp: {
+      sendEmail: (o) => { if (mailFail) throw new Error('mail caído'); calls.mail.push(o); },
+      getRemainingDailyQuota: () => (opts.mailQuota == null ? 100 : opts.mailQuota) - calls.mail.length
+    },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ t, setMimeType() { return this; }, getContent() { return this.t; } }) },
     UrlFetchApp: {
       fetch: (url, o) => {
@@ -56,6 +61,7 @@ function createRuntime(opts = {}) {
   return {
     g, props, tabs, calls,
     setAi(fn) { aiHandler = fn; },
+    setMailFail(v) { mailFail = v; },
     setup() { return g.setupSheets(); },
     addUser(correo, nombre = '', activo = 'SI', limite = '', codigo = '') { tabs.Usuarios.appendRow([correo, nombre, activo, limite, codigo, '']); },
     post(body) { return JSON.parse(g.doPost({ postData: { contents: JSON.stringify(body) } }).getContent()); }

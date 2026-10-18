@@ -186,4 +186,73 @@ t('prueba: guarda y lee datos, con tope de elementos por colección', () => {
   assert.strictEqual(rt.post({ action: 'save', token: tk, changes: { memory: many } }).code, 'bad');
 });
 
+// ---------- Resumen por correo ----------
+const mailProps = { EMAIL_LINKEDIN_URL: 'https://www.linkedin.com/in/ejemplo', EMAIL_FROM_NAME: 'Melissa', SITE_URL: 'https://ejemplo.github.io/bip/', EMAIL_FOOTER_TEXT: 'Si te sirvió, conversemos.' };
+function withPosts(rt, tk, n, extra) {
+  const caps = [], posts = [];
+  for (let i = 1; i <= n; i++) {
+    caps.push({ id: 'c' + i, json: JSON.stringify({ id: 'c' + i, texto: 'Lo que escribí número ' + i + (extra || '') }) });
+    posts.push({ id: 'p' + i, json: JSON.stringify({ id: 'p' + i, captureId: 'c' + i, estado: 'borrador', created: '2026-10-1' + i, formato: 'Honest Tradeoff', hook: 'Hook ' + i, cuerpo: 'Cuerpo del post ' + i + '\nsegunda línea' }) });
+  }
+  return rt.post({ action: 'save', token: tk, changes: { captures: caps, posts } });
+}
+t('correo: sin posts no se envía nada ni se gasta el único envío', () => {
+  const rt = auto(mailProps); const tk = login(rt, 'visita@example.com').token;
+  assert.strictEqual(rt.post({ action: 'send_summary', token: tk }).code, 'none'); assert.strictEqual(rt.calls.mail.length, 0);
+  assert.strictEqual(rt.post({ action: 'load', token: tk }).usage.mail.sent, false);
+});
+t('correo: envía lo que escribió + los posts + tus redes, a su propia dirección', () => {
+  const rt = auto(mailProps); const tk = login(rt, 'Visita+x@Example.com').token; withPosts(rt, tk, 2);
+  const r = rt.post({ action: 'send_summary', token: tk });
+  assert.ok(r.ok && r.count === 2 && r.usage.mail.sent === true && r.sentTo === 'visita@example.com');
+  assert.strictEqual(rt.calls.mail.length, 1); const m = rt.calls.mail[0];
+  assert.strictEqual(m.to, 'visita@example.com'); assert.strictEqual(m.subject, 'Tus posts de Building in Public'); assert.strictEqual(m.name, 'Melissa');
+  for (const s of ['Lo que escribí número 1', 'Lo que escribí número 2', 'Hook 1', 'Cuerpo del post 2']) { assert.ok(m.body.includes(s), 'texto: ' + s); assert.ok(m.htmlBody.includes(s), 'html: ' + s); }
+  assert.ok(m.htmlBody.includes('href="https://www.linkedin.com/in/ejemplo"') && m.body.includes('LinkedIn: https://www.linkedin.com/in/ejemplo'));
+  assert.ok(m.body.includes('Si te sirvió, conversemos.') && m.htmlBody.includes('Seguir probando'));
+});
+t('correo: un solo envío por persona de prueba (no se puede usar para spamear)', () => {
+  const rt = auto(mailProps); const tk = login(rt, 'visita@example.com').token; withPosts(rt, tk, 2);
+  assert.ok(rt.post({ action: 'send_summary', token: tk }).ok);
+  const again = rt.post({ action: 'send_summary', token: tk }); assert.strictEqual(again.code, 'sent'); assert.strictEqual(rt.calls.mail.length, 1);
+  assert.strictEqual(rt.post({ action: 'send_summary', token: login(rt, 'visita+otro@example.com').token }).code, 'sent', 'el alias no da otro envío');
+});
+t('correo: el texto del usuario va escapado y no puede cambiar destinatario ni asunto', () => {
+  const rt = auto(mailProps); const tk = login(rt, 'visita@example.com').token; withPosts(rt, tk, 1, ' <script>alert(1)</script> <a href="https://malo.com">x</a>');
+  const r = rt.post({ action: 'send_summary', token: tk, to: 'victima@otro.com', subject: 'Gana dinero', html: '<b>hola</b>' });
+  assert.ok(r.ok); const m = rt.calls.mail[0];
+  assert.strictEqual(m.to, 'visita@example.com'); assert.strictEqual(m.subject, 'Tus posts de Building in Public');
+  assert.ok(!m.htmlBody.includes('<script>') && !m.htmlBody.includes('href="https://malo.com"') && m.htmlBody.includes('&lt;script&gt;'));
+  assert.ok(!m.htmlBody.includes('<b>hola</b>'));
+});
+t('correo: máximo 5 posts (los más recientes) y las redes inválidas se ignoran', () => {
+  const rt = auto({ EMAIL_LINKEDIN_URL: 'javascript:alert(1)' }); const tk = login(rt, 'visita@example.com').token; withPosts(rt, tk, 7);
+  rt.post({ action: 'send_summary', token: tk }); const m = rt.calls.mail[0];
+  assert.ok(!m.body.includes('Hook 1\n') && !m.body.includes('Hook 2\n') && m.body.includes('Hook 7'));
+  assert.ok(!m.htmlBody.includes('javascript:') && !m.body.includes('LinkedIn:'));
+});
+t('correo: tope diario global, EMAIL_ENABLED=NO y fallo de envío no gastan el cupo personal', () => {
+  const rt = auto(Object.assign({ EMAIL_DAILY_LIMIT: '1' }, mailProps));
+  const a = login(rt, 'a@x.com').token, b = login(rt, 'b@x.com').token; withPosts(rt, a, 1); withPosts(rt, b, 1);
+  assert.ok(rt.post({ action: 'send_summary', token: a }).ok);
+  const blocked = rt.post({ action: 'send_summary', token: b }); assert.strictEqual(blocked.code, 'limit');
+  assert.strictEqual(rt.post({ action: 'load', token: b }).usage.mail.sent, false);
+  const off = auto({ EMAIL_ENABLED: 'NO' }); const tk = login(off, 'v@x.com').token; withPosts(off, tk, 1);
+  assert.strictEqual(off.post({ action: 'send_summary', token: tk }).code, 'mail');
+  const bad = auto(mailProps); const t2 = login(bad, 'v@x.com').token; withPosts(bad, t2, 1); bad.setMailFail(true);
+  assert.strictEqual(bad.post({ action: 'send_summary', token: t2 }).code, 'mail'); bad.setMailFail(false);
+  assert.ok(bad.post({ action: 'send_summary', token: t2 }).ok, 'tras el fallo puede reintentar');
+});
+t('correo: cuota diaria de Google agotada se maneja con mensaje claro', () => {
+  const rt = createRuntime({ props: { AUTO_REGISTER: 'SI' }, mailQuota: 0 }); rt.setup();
+  const tk = login(rt, 'v@x.com').token; withPosts(rt, tk, 1);
+  assert.strictEqual(rt.post({ action: 'send_summary', token: tk }).code, 'limit');
+});
+t('correo: usuarios manuales pueden pedirlo una vez al día; pruebas, una sola vez', () => {
+  const rt = fresh(mailProps); const tk = login(rt, 'ana@example.com').token; withPosts(rt, tk, 1);
+  assert.ok(rt.post({ action: 'send_summary', token: tk }).ok);
+  assert.ok(rt.tabs.Uso.cells.some((r) => r && r[1] === 'ana@example.com' && r[2] === 'mail' && r[0] !== 'TOTAL'));
+});
+t('correo: sin sesión no se puede pedir', () => { assert.strictEqual(fresh().post({ action: 'send_summary' }).code, 'auth'); });
+
 console.log('\n' + n + ' pruebas OK');

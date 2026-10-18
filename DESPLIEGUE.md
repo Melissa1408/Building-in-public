@@ -61,6 +61,13 @@ Las variables están descritas en [`.env.example`](.env.example).
 | `TRIAL_LIMIT` | No (2) | Usos de IA **en total** por correo de prueba (no por día). |
 | `TRIAL_GLOBAL_DAILY_LIMIT` | No (30) | Tope diario de usos de prueba sumando **todas** las personas de prueba. |
 | `TRIAL_NEW_USERS_DAILY_LIMIT` | No (50) | Correos nuevos que se pueden registrar por día (evita que un bot llene el Sheet). |
+| `EMAIL_ENABLED` | No (`SI`) | `NO` quita el botón "Enviarme por correo". |
+| `EMAIL_FROM_NAME` | No | Nombre del remitente y firma del correo. |
+| `EMAIL_LINKEDIN_URL` | No | Tu LinkedIn, al pie del correo (debe empezar con `https://`). |
+| `EMAIL_FOOTER_TEXT` | No | Texto corto bajo tu nombre. |
+| `EMAIL_REPLY_TO` | No | Dirección a la que llegan las respuestas. |
+| `SITE_URL` | No | URL de la página; aparece como "Seguir probando". |
+| `EMAIL_DAILY_LIMIT` | No (30) | Correos por día entre todos (Gmail personal permite unos 100). |
 | `SHEET_ID` | No | Solo si el script no se creó desde el propio Sheet. |
 | `TOKEN_SECRET` | No | Firma de sesiones; si falta se genera solo. |
 
@@ -116,7 +123,8 @@ GitHub → **Settings → Pages** → *Deploy from a branch* → `main` / `(root
 4. Un tercer intento debe bloquearse con "Ya usaste tus 2 pruebas gratuitas" y tu mensaje de contacto.
 5. Entra con una variante del mismo correo (`tu+2@...`): el cupo sigue en 0, no se regala otro.
 6. Pestañas **Datos** y **Uso**: filas nuevas y el contador `TOTAL`.
-7. Con un usuario **manual** (con `codigo`) comprueba que pide el código y que su límite es **diario**.
+7. Con la tarjeta **Llévate tus posts**: pulsa *Enviarme por correo* y revisa tu bandeja (y spam). Un segundo intento debe decir que ya se envió.
+8. Con un usuario **manual** (con `codigo`) comprueba que pide el código y que su límite es **diario**.
 
 **Cargar datos iniciales de una persona:** con su sesión → Memoria → *Importar respaldo* → su archivo JSON (guárdalo en `private/`, que git ignora). Se guarda en su cuenta del Sheet.
 
@@ -126,11 +134,26 @@ GitHub → **Settings → Pages** → *Deploy from a branch* → `main` / `(root
 1. En Apps Script: pega el nuevo [`Code.gs`](apps-script/Code.gs) (reemplaza todo).
 2. Ejecuta **`setupSheets`** otra vez (agrega la columna `origen` a Usuarios; no borra nada).
 3. (Opcional) En **Propiedades del script** añade las variables nuevas de la tabla del paso 3. Sin ellas se usan los valores por defecto (registro abierto, 2 pruebas, tope 30/día).
-4. **Implementar → Administrar implementaciones → ✏ Editar → Versión: Nueva versión → Implementar.** La URL no cambia.
+4. **Implementar → Administrar implementaciones → ✏ Editar → Versión: Nueva versión → Implementar.** La URL no cambia. Si Google pide permisos nuevos (**enviar correo**), acéptalos: *Revisar permisos → tu cuenta → Configuración avanzada → Ir a bip-backend → Permitir*. Si no aparece la pantalla, ejecuta cualquier función una vez desde el editor (por ejemplo `setupSheets`) y acepta ahí.
 5. Tus usuarios actuales siguen igual (manuales, con su código y su cupo diario).
 
 ## Actualizar el servidor más adelante
 Si cambias `Code.gs`: pega el nuevo código → **Implementar → Administrar implementaciones → ✏ Editar → Versión: Nueva versión → Implementar**. La URL **no cambia**. (Si creas una "Nueva implementación" la URL sí cambia.)
+
+## El correo "Llévate tus posts"
+Cuando una persona ya generó 2 posts (o agotó sus pruebas) le aparece una tarjeta **"Llévate tus posts"**. Si pulsa **Enviarme por correo**, recibe en su dirección:
+- lo que escribió y el post que se generó (hasta los 5 más recientes), y
+- al pie, tu nombre, tu LinkedIn y un enlace para seguir probando.
+
+Cómo funciona y qué protege:
+- **Solo se envía si la persona lo pide.** No hay envío automático: así nadie recibe correos que no pidió.
+- **Un solo correo por persona de prueba** (los usuarios manuales, uno al día) y solo a la dirección con la que entró. El contenido sale de lo que ya está guardado en el Sheet; la petición no puede cambiar destinatario, asunto ni texto.
+- Todo el texto va escapado (no puede colarse HTML ni enlaces). Los enlaces de tus redes solo se aceptan si empiezan con `https://`.
+- Tope diario global (`EMAIL_DAILY_LIMIT`, 30) y se respeta la cuota de Google. Si no se puede enviar, no se gasta el único envío de la persona.
+- Sale desde **tu cuenta de Google** (nombre = `EMAIL_FROM_NAME`). El correo incluye "si no fuiste tú, ignóralo".
+- **Primera vez:** al publicar la nueva versión Google te pedirá un permiso adicional (*enviar correo como tú*). Es normal; hay que aceptarlo (paso 4 de "Si ya tenías la versión anterior").
+
+Riesgo que debes conocer: como el correo no se verifica, alguien podría escribir la dirección de otra persona y pedir el envío; esa persona recibiría **un** correo (con el texto que escribió quien lo pidió, escapado y con el aviso de "ignóralo"). Está acotado por: un envío por dirección, 30 al día en total y el cupo de Google. Si lo prefieres, `EMAIL_ENABLED = NO` lo apaga al instante.
 
 ## Cómo funcionan los límites
 - Cuentan las llamadas a la IA: **generar post, "responder y mejorar" y "otro hook"**. Dictar no cuenta.
@@ -171,7 +194,7 @@ Apps Script gratuito permite unas 20 000 llamadas externas (`UrlFetch`) y 6 hora
 ## Probar sin Google (desarrollo)
 El mismo `Code.gs` corre en memoria con Google simulado:
 ```bash
-node apps-script/test/test.js          # 28 pruebas: login, auto-registro, datos, límites, seguridad
+node apps-script/test/test.js          # 37 pruebas: login, auto-registro, datos, límites, correo, seguridad
 node apps-script/test/dev-backend.js   # servidor local en :8787 (cualquier correo se auto-registra)
 node tools/serve.js                    # la página en :5173
 ```

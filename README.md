@@ -15,6 +15,9 @@ Página estática (GitHub Pages) + **Google Sheets como base de datos** + **Apps
 
 **Despliegue paso a paso: [DESPLIEGUE.md](DESPLIEGUE.md).** Variables de entorno: [.env.example](.env.example).
 
+## Llévate tus posts
+Tras generar 2 posts (o al acabar las pruebas) la persona puede pedir que le enviemos por correo lo que escribió y los posts generados, con tus redes al pie. Se envía solo bajo petición, una vez por persona. Ver [DESPLIEGUE.md](DESPLIEGUE.md#el-correo-llévate-tus-posts).
+
 ## Privacidad
 Este repo **no contiene datos personales ni claves**. Los datos de cada usuario viven en tu Google Sheet (privado). `.env` y `private/` están en `.gitignore`.
 

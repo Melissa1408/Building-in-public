@@ -235,8 +235,18 @@
     const link = c.CONTACT_URL && /^https:\/\//.test(c.CONTACT_URL) ? ` <a href="${esc(c.CONTACT_URL)}" target="_blank" rel="noopener">${esc(c.CONTACT_TEXT || 'Escríbeme')}</a>` : (c.CONTACT_TEXT ? ' ' + esc(c.CONTACT_TEXT) : '');
     return `<section class="card limit"><strong>${limitText()}</strong>${link}<p class="muted">Tus posts siguen aquí para copiar o editar.</p></section>`;
   }
+  // "Descarga" por correo: aparece cuando ya hay 2 posts (o se acabaron las pruebas). Se envía solo si la persona lo pide.
+  function mailCard() {
+    const u = ui.usage; if (!session || !u) return '';
+    const n = S.posts.length, exhausted = u.ai.used >= u.ai.limit;
+    if (u.mail && u.mail.sent) return `<section class="card mail"><span>✓ Te enviamos tus posts a <strong>${esc(session.email)}</strong>. Si no lo ves, revisa la carpeta de spam.</span></section>`;
+    if (!n || (n < 2 && !exhausted)) return '';
+    return `<section class="card mail"><h3>Llévate tus posts</h3>
+      <p class="muted">Te enviamos a <strong>${esc(session.email)}</strong> lo que escribiste y los posts que generamos (hasta 5), para que los copies y los publiques cuando quieras.</p>
+      <div class="row"><button class="btn primary" data-act="sendmail">Enviarme por correo</button></div></section>`;
+  }
   function viewHoy() {
-    const last = S.posts.find((p) => p.id === ui.lastPostId);
+    const last =S.posts.find((p) => p.id === ui.lastPostId);
     return `${limitBanner()}<section class="card">
       <h2>¿Qué aprendiste o decidiste hoy?</h2>
       <p class="muted">Cuéntalo como se lo contarías a alguien. Dicta, sube un audio o escribe. Mientras más natural, mejor suena el post.</p>
@@ -251,6 +261,7 @@
       <p id="status" class="muted"></p>
     </section>
     ${last ? `<h3>Tu post</h3>${postCard(last)}` : ''}
+    ${mailCard()}
     `;
   }
 
@@ -302,7 +313,7 @@
     let ps = S.posts.slice().reverse();
     if (ui.filtro !== 'todos') ps = ps.filter((p) => p.estado === ui.filtro);
     if (ui.focus) ps.sort((a, b) => (b.id === ui.focus) - (a.id === ui.focus));
-    return `<div class="row between"><h2>Posts</h2><select data-act="filtro">${['todos', ...ESTADOS].map((e) => `<option ${e === ui.filtro ? 'selected' : ''}>${e}</option>`).join('')}</select></div>
+    return `${mailCard()}<div class="row between"><h2>Posts</h2><select data-act="filtro">${['todos', ...ESTADOS].map((e) => `<option ${e === ui.filtro ? 'selected' : ''}>${e}</option>`).join('')}</select></div>
       ${ps.map(postCard).join('') || '<p class="muted">Todavía no hay posts. Empieza en Hoy.</p>'}`;
   }
 
@@ -431,6 +442,13 @@
         if (!parts.length) return toast('Escribe al menos una respuesta, o pulsa "Dejarlo así".');
         el.disabled = true;
         try { await regenerate(p, parts.join('\n')); } finally { el.disabled = false; }
+        return;
+      }
+      if (a === 'sendmail') {
+        el.disabled = true;
+        try { await doSync(); const r = await API.call('send_summary', {}); toast('Listo. Te lo enviamos a ' + r.sentTo + '.'); }
+        catch (er) { if (er.code === 'sent' && ui.usage) ui.usage.mail = { sent: true }; throw er; }
+        finally { el.disabled = false; render(); }
         return;
       }
       if (a === 'skipq') { (p.pendientes || []).forEach((q) => { q.resuelto = true; }); save(); return render(); }

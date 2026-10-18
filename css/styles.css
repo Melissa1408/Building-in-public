@@ -60,3 +60,4 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--mu)}
 code{background:var(--bg);padding:1px 5px;border-radius:4px}
 .limit{border-color:var(--warn)}
 .limit a{font-weight:600}
+.mail{border-color:var(--ac)}
