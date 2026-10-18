@@ -82,5 +82,47 @@ window.KB = {
         "tipo": "Descubrimiento o decisión"
       }
     ]
-  }
+  },
+  "catalogoAudiencias": [
+    {
+      "nombre": "Colegas de tu industria",
+      "busca": "Aprender de un caso real y ver que otros también se bloquean",
+      "evitar": "Condescendencia; explicar lo básico"
+    },
+    {
+      "nombre": "Personas que están aprendiendo lo mismo",
+      "busca": "Pasos concretos y errores que pueden evitar",
+      "evitar": "Jerga sin explicar"
+    },
+    {
+      "nombre": "Quienes contratan o lideran equipos",
+      "busca": "Ver criterio y cómo piensas tus decisiones",
+      "evitar": "Solo lista de tareas; mostrar el porqué"
+    },
+    {
+      "nombre": "Clientes o aliados potenciales",
+      "busca": "Evidencia de que entiendes su problema",
+      "evitar": "Vender; mostrar el proceso"
+    },
+    {
+      "nombre": "Emprendedores y fundadores",
+      "busca": "Decisiones con números reales, trade-offs y lecciones de negocio",
+      "evitar": "Frases motivacionales sin datos"
+    },
+    {
+      "nombre": "Personas técnicas (desarrollo, datos, producto)",
+      "busca": "Profundidad, detalles de cómo lo resolviste y por qué",
+      "evitar": "Simplificar en exceso"
+    },
+    {
+      "nombre": "Reclutadores",
+      "busca": "Evidencia de habilidades y de cómo comunicas",
+      "evitar": "Un CV en prosa; mostrar un proyecto vivo"
+    },
+    {
+      "nombre": "Mentores y referentes de tu campo",
+      "busca": "Ver tu razonamiento y tu capacidad de aprender",
+      "evitar": "Pedir validación; mostrar qué probaste"
+    }
+  ]
 };

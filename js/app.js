@@ -57,7 +57,7 @@
   let syncTimer = null, syncing = false, again = false;
   function paintSync() {
     const el = $('#sync'); if (!el) return;
-    const m = { idle: '', pending: 'Guardando…', saving: 'Guardando…', ok: '☁ Guardado en Google Sheets', error: '⚠ Sin guardar · reintentar' };
+    const m = { idle: '', pending: 'Guardando…', saving: 'Guardando…', ok: '☁ Guardado en tu cuenta', error: '⚠ Sin guardar · reintentar' };
     el.textContent = m[ui.sync] || ''; el.className = 'sync ' + ui.sync;
   }
   function save() {
@@ -171,20 +171,47 @@
   function opts(list, val) { return list.map((o) => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join(''); }
   function rows(t) { return Math.min(22, Math.max(4, String(t || '').split('\n').length + Math.ceil(String(t || '').length / 90))); }
 
+  function badgesHtml(p) {
+    return `<div class="badges"><span class="b ${p.estado}">${esc(p.estado)}</span><span class="b">${esc(p.formato || '—')}</span>${p.tipo ? `<span class="b">${esc(p.tipo)}</span>` : ''}${p.fechaPlan ? `<span class="b">📅 ${esc(p.fechaPlan)}</span>` : ''}</div>`;
+  }
+  // Guardar en calendario: la fecha NO se guarda al elegirla, sino al pulsar el botón (así queda claro).
+  function calBlock(p) {
+    return `<div class="calsave"><label>Fecha de publicación<input type="date" data-dateinput value="${esc(p.fechaPlan || '')}"></label>
+      <button class="btn" data-act="calsave" data-id="${p.id}">📅 Guardar en calendario</button>
+      ${p.fechaPlan ? `<span class="okmsg">✓ En el calendario: ${esc(p.fechaPlan)} · <a href="#" data-act="gocal" data-id="${p.id}">Ver calendario</a> · <a href="#" data-act="calclear" data-id="${p.id}">Quitar</a></span>` : '<span class="muted">Elige una fecha y pulsa el botón. Si no eliges, uso el próximo día libre de tu cadencia.</span>'}</div>`;
+  }
+  function nextFreeSlot() {
+    const dows = S.settings.slots.map((s) => s.dow), d = new Date(); d.setHours(0, 0, 0, 0);
+    for (let i = 0; i < 90; i++) { const k = iso(d); if (dows.includes(d.getDay()) && !S.posts.some((x) => x.fechaPlan === k)) return k; d.setDate(d.getDate() + 1); }
+    return today();
+  }
+  function showDateInCalendar(k) {
+    const d = new Date(k + 'T00:00:00'), now = new Date();
+    ui.monthOffset = (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth();
+    ui.weekOffset = Math.round((weekStart(0).getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime()) / 604800000) * -1;
+  }
+  // Historial de versiones: antes de cambiar el hook o mejorar el post, la versión actual queda guardada para poder volver.
+  function snapshot(p, motivo) {
+    p.versiones = p.versiones || [];
+    p.versiones.push({ hook: p.hook, cuerpo: p.cuerpo, patronHook: p.patronHook, motivo, fecha: new Date().toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) });
+    if (p.versiones.length > 5) p.versiones.shift();
+  }
+
   function postCard(p) {
     const open = (p.pendientes || []).filter((q) => !q.resuelto);
     const pend = open.length ? `<div class="pend"><strong>Para afinar el post (opcional, una frase por pregunta)</strong>
       ${open.map((q) => `<label>${esc(q.pregunta)}<input data-q="${q.id}" placeholder="Tu respuesta"></label>`).join('')}
       <div class="row wrap"><button class="btn sm primary" data-act="answer" data-id="${p.id}">Responder y mejorar · usa 1</button><button class="btn sm ghost" data-act="skipq" data-id="${p.id}">Dejarlo así</button></div></div>` : '';
+    const vers = p.versiones || [];
+    const versHtml = vers.length ? `<details class="vers"><summary>↩ Volver a una versión anterior (${vers.length})</summary>${vers.map((v, i) => ({ v, i })).reverse().map(({ v, i }) => `<div class="ver"><div><strong>${esc(v.motivo)}</strong> · ${esc(v.fecha)}<div class="muted">${esc((v.hook || '').slice(0, 120))}</div></div><button class="btn sm" data-act="restore" data-id="${p.id}" data-i="${i}">Restaurar</button></div>`).join('')}</details>` : '';
     return `<article class="card post" id="post-${p.id}" data-id="${p.id}">
-      <div class="badges"><span class="b ${p.estado}">${esc(p.estado)}</span><span class="b">${esc(p.formato || '—')}</span>
-        ${p.tipo ? `<span class="b">${esc(p.tipo)}</span>` : ''}${p.fechaPlan ? `<span class="b">📅 ${esc(p.fechaPlan)}</span>` : ''}</div>
-      <div class="grid4">
+      ${badgesHtml(p)}
+      <div class="grid3e">
         <label>Formato<select data-f="formato">${opts(KB.formatos, p.formato)}</select></label>
         <label>Tipo<select data-f="tipo">${opts(TIPOS, p.tipo)}</select></label>
         <label>Estado<select data-f="estado">${opts(ESTADOS, p.estado)}</select></label>
-        <label>Fecha planeada<input type="date" data-f="fechaPlan" value="${esc(p.fechaPlan || '')}"></label>
       </div>
+      ${calBlock(p)}
       <label>Hook <span class="muted">(${esc(p.patronHook || 'sin patrón')})</span>
         <textarea data-f="hook" rows="2">${esc(p.hook)}</textarea></label>
       <label>Cuerpo <textarea data-f="cuerpo" rows="${rows(p.cuerpo)}">${esc(p.cuerpo)}</textarea></label>
@@ -192,13 +219,14 @@
         <p><strong>Por qué:</strong> ${esc(p.porque)}</p><p><strong>Problema:</strong> ${esc(p.problema)}</p>
         <label>Público<input data-f="publico" value="${esc(p.publico)}"></label></details>
       ${pend}
+      ${versHtml}
       <div class="row actions">
         <button class="btn primary" data-act="copy" data-id="${p.id}">Copiar post</button>
         <button class="btn" data-act="hook" data-id="${p.id}">Otro hook · usa 1</button>
         <button class="btn" data-act="publish" data-id="${p.id}">Marcar publicado</button>
         <button class="btn ghost danger" data-act="del" data-id="${p.id}">Eliminar</button>
       </div>
-      <div class="row"><input data-fb="${p.id}" placeholder="¿Qué corregiste y por qué? (para que no se repita)"><button class="btn sm" data-act="fb" data-id="${p.id}">Guardar corrección</button></div>
+      ${session && session.trial ? '' : `<div class="row"><input data-fb="${p.id}" placeholder="¿Qué cambiaste del texto y por qué? Así la próxima vez no repite el error"><button class="btn sm" data-act="fb" data-id="${p.id}">Guardar corrección</button></div>`}
     </article>`;
   }
 
@@ -247,11 +275,13 @@
       <div class="row"><button class="btn primary" data-act="sendmail">Enviarme por correo</button></div></section>`;
   }
   function viewHoy() {
-    const last =S.posts.find((p) => p.id === ui.lastPostId);
+    const last = S.posts.find((p) => p.id === ui.lastPostId) || S.posts[S.posts.length - 1];
+    const nav = S.posts.length > 1 && last ? `<div class="postnav"><span class="muted">Tus posts:</span>${S.posts.slice(-6).map((x) => `<button class="btn sm ${x.id === last.id ? 'primary' : ''}" data-act="showpost" data-id="${x.id}" title="${esc((x.hook || '').slice(0, 90))}">Post ${S.posts.indexOf(x) + 1}</button>`).join('')}</div>` : '';
     return `${limitBanner()}<section class="card">
       <h2>¿Qué aprendiste o decidiste hoy?</h2>
       <p class="muted">Cuéntalo como se lo contarías a alguien. Dicta, sube un audio o escribe. Mientras más natural, mejor suena el post.</p>
       ${!S.profile.proyecto ? `<label>¿Qué estás construyendo o aprendiendo? <span class="muted">(opcional; ayuda a que el post suene a ti)</span><input data-p="proyecto" placeholder="Ej.: una tienda online, mi primer bot, un curso de datos…"></label>` : ''}
+      ${window.GUIA ? `<details class="receta"><summary>¿No sabes qué contar? Receta de 60 segundos</summary>${GUIA.rapida}<p><a href="#" data-tab="guia">Ver la guía completa</a></p></details>` : ''}
       <textarea id="txt" rows="6" placeholder="Hoy descubrí que… / Decidí X en vez de Y porque…  (2 o 3 frases bastan)"></textarea>
       <div class="row wrap">
         <button class="btn" data-act="dictate" id="dictBtn">🎙 Dictar</button>
@@ -261,7 +291,7 @@
       </div>
       <p id="status" class="muted"></p>
     </section>
-    ${last ? `<h3>Tu post</h3>${postCard(last)}` : ''}
+    ${last ? `<h3>Tu post</h3>${nav}${postCard(last)}` : ''}
     ${mailCard()}
     `;
   }
@@ -310,6 +340,7 @@
     return tog + (ui.calView === 'mes' ? viewMes() : viewSemana());
   }
 
+  function viewGuia() { return `<h2>Guía</h2><div class="guia">${(window.GUIA || {}).html || ''}</div>`; }
   function viewPosts() {
     let ps = S.posts.slice().reverse();
     if (ui.filtro !== 'todos') ps = ps.filter((p) => p.estado === ui.filtro);
@@ -323,35 +354,43 @@
     const p = S.profile, st = S.settings;
     const f = (k, l, ta) => `<label>${l}${ta ? `<textarea data-p="${k}" rows="2">${esc(p[k])}</textarea>` : `<input data-p="${k}" value="${esc(p[k])}">`}</label>`;
     return `<h2>Memoria${p.nombre ? ' de ' + esc(p.nombre) : ''}</h2>
-    <p class="muted">Aquí vive lo que el sistema sabe de ella. Cada vez que cuenta algo, esta memoria crece y los posts suenan más a ella.</p>
+    <p class="muted">Todo esto es <strong>opcional</strong>: mientras más completes, mejor suena cada post. Se guarda solo, asociado a tu correo, y llenarlo o editarlo <strong>no gasta usos de IA</strong>. Lo que cuentas al generar posts también se va sumando aquí.</p>
     <section class="card"><h3>Perfil</h3><div class="grid2">${f('nombre', 'Nombre')}${f('rol', 'Rol')}${f('nivel', 'Nivel de experiencia')}${f('etapa', 'Etapa del proyecto')}</div>
-      ${f('proyecto', 'Proyecto', 1)}${f('tono', 'Voz y tono (cómo habla)', 1)}${f('noEs', 'Qué NO es (para no exagerar su expertise)', 1)}
-      <label>Brief: por qué construye esto, su tesis, sus miedos, su visión de éxito<textarea data-k="brief" rows="4">${esc(S.brief)}</textarea></label>
-      <label>Posts aprobados (ejemplos de calidad y de voz; pega los que ya le gustaron)<textarea data-k="ejemplos" rows="6">${esc(S.ejemplos)}</textarea></label>
-      <label>Pilares (uno por línea)<textarea data-k="pilares" rows="2">${esc(S.pilares.join('\n'))}</textarea></label>
-      <label>Restricciones de contenido (una por línea)<textarea data-k="constraints" rows="4">${esc(S.constraints.join('\n'))}</textarea></label></section>
-    <section class="card"><h3>Público</h3>${S.audiences.map((a, i) => `<div class="grid3">
-      <input data-a="${i}.nombre" value="${esc(a.nombre)}"><input data-a="${i}.busca" value="${esc(a.busca)}" placeholder="Qué busca"><input data-a="${i}.evitar" value="${esc(a.evitar)}" placeholder="Qué evitar"></div>`).join('')}</section>
-    <section class="card"><h3>Datos abiertos (pendientes con ella)</h3>
+      ${f('proyecto', 'Proyecto', 1)}${f('tono', 'Voz y tono (cómo hablas)', 1)}${f('noEs', 'Qué NO eres (para no exagerar tu experiencia)', 1)}
+      <label>Por qué haces esto: tu tesis, tus miedos, qué sería éxito para ti<textarea data-k="brief" rows="4">${esc(S.brief)}</textarea></label>
+      <details><summary>Opciones avanzadas</summary>
+      <label>Posts que ya te gustaron (ejemplos de calidad y de voz)<textarea data-k="ejemplos" rows="6">${esc(S.ejemplos)}</textarea></label>
+      <label>Pilares de contenido (uno por línea)<textarea data-k="pilares" rows="2">${esc(S.pilares.join('\n'))}</textarea></label>
+      <label>Reglas para tus posts (una por línea)<textarea data-k="constraints" rows="4">${esc(S.constraints.join('\n'))}</textarea></label></details></section>
+    <section class="card"><h3>Público</h3>
+      <p class="muted">Elige a quién le hablas: el post se adapta a lo que cada público busca. Con 1 a 3 los posts quedan más claros.</p>
+      ${KB.catalogoAudiencias.map((c, i) => `<label class="chk"><input type="checkbox" data-audcat="${i}" ${S.audiences.some((a) => a.nombre === c.nombre) ? 'checked' : ''}><span><strong>${esc(c.nombre)}</strong><br><span class="muted">Busca: ${esc(c.busca)}</span></span></label>`).join('')}
+      ${S.audiences.length > 3 ? `<p class="muted">Tienes ${S.audiences.length} públicos marcados: con 1 a 3 funciona mejor.</p>` : ''}
+      ${S.audiences.map((a, i) => ({ a, i })).filter(({ a }) => !KB.catalogoAudiencias.some((c) => c.nombre === a.nombre)).map(({ a, i }) => `<div class="audrow"><input data-a="${i}.nombre" value="${esc(a.nombre)}"><input data-a="${i}.busca" value="${esc(a.busca)}" placeholder="Qué busca"><input data-a="${i}.evitar" value="${esc(a.evitar)}" placeholder="Qué evitar"><button class="btn sm ghost danger" data-act="delaud" data-i="${i}" title="Quitar">✕</button></div>`).join('')}
+      <h4>Añadir otro público</h4>
+      <div class="grid3"><input id="audN" placeholder="Nombre (ej.: Docentes de mi área)"><input id="audB" placeholder="Qué busca"><input id="audE" placeholder="Qué evitar"></div>
+      <div class="row"><button class="btn sm" data-act="addaud">Añadir</button></div></section>
+    ${S.abiertos.length ? `<section class="card"><h3>Datos pendientes</h3>
       ${S.abiertos.map((a) => `<div class="pend ${a.resuelto ? 'done' : ''}"><strong>${esc(a.dato)}</strong><div>${esc(a.pregunta)}</div>
-        ${a.resuelto ? `<div class="muted">Respuesta: ${esc(a.respuesta)}</div>` : `<div class="row"><input data-ab="${a.id}" placeholder="Respuesta"><button class="btn sm" data-act="abre" data-id="${a.id}">Guardar</button></div>`}</div>`).join('') || '<p class="muted">Nada abierto.</p>'}</section>
-    <section class="card"><h3>Cerebro (${S.memory.length} notas · ${S.captures.length} transcripciones)</h3>
-      <div class="row"><input id="memNew" placeholder="Agregar un dato sobre su proyecto, stack o forma de hablar"><button class="btn sm" data-act="memnew">Agregar</button></div>
+        ${a.resuelto ? `<div class="muted">Respuesta: ${esc(a.respuesta)}</div>` : `<div class="row"><input data-ab="${a.id}" placeholder="Respuesta"><button class="btn sm" data-act="abre" data-id="${a.id}">Guardar</button></div>`}</div>`).join('')}</section>` : ''}
+    <section class="card"><h3>Lo que sé de ti (${S.memory.length} notas)</h3>
+      <div class="row"><input id="memNew" placeholder="Agregar un dato sobre tu proyecto, tus herramientas o tu forma de hablar"><button class="btn sm" data-act="memnew">Agregar</button></div>
       <ul class="mem">${S.memory.slice().reverse().map((m) => `<li><span>${esc(m.texto)}</span><button class="btn sm ghost danger" data-act="memdel" data-id="${m.id}">✕</button></li>`).join('')}</ul></section>
-    <section class="card"><h3>Correcciones que ella hizo (${S.feedback.length})</h3>
-      <ul class="mem">${S.feedback.slice().reverse().map((m) => `<li><span>${esc(m.texto)}</span><button class="btn sm ghost danger" data-act="fbdel" data-id="${m.id}">✕</button></li>`).join('')}</ul></section>
+    ${session && session.trial ? '' : `<section class="card"><h3>Correcciones que has hecho (${S.feedback.length})</h3>
+<p class="muted">Cuando cambias un post y explicas por qué, el asistente lo tiene en cuenta la próxima vez para no repetir el error.</p>
+$1</section>`}
     <section class="card"><h3>Ajustes</h3><div class="grid2">
       <label>Idioma de dictado<select data-s="lang">${['es-419', 'es-MX', 'es-ES', 'es-CO', 'es-AR', 'en-US'].map((l) => `<option ${l === st.lang ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
       <h4>Cadencia (3 por semana)</h4>${st.slots.map((s, i) => `<div class="row"><select data-sl="${i}.dow">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === s.dow ? 'selected' : ''}>${DIAS[d]}</option>`).join('')}</select><input data-sl="${i}.tipo" value="${esc(s.tipo)}"></div>`).join('')}
-      <p class="muted">Todo se guarda solo en Google Sheets unos segundos después de cada cambio (mira el aviso arriba). Si quieres forzarlo:</p>
+      <p class="muted">Todo se guarda solo, unos segundos después de cada cambio (mira el aviso de arriba), en la base de datos de esta herramienta y asociado a tu correo. <strong>No se crea ninguna hoja en tu Google.</strong> Si quieres forzarlo:</p>
       <div class="row wrap"><button class="btn primary" data-act="syncnow">Guardar ahora</button><button class="btn" data-act="export">Exportar respaldo</button><label class="btn file">Importar respaldo<input type="file" id="imp" accept="application/json" hidden></label>${legacyExists() ? '<button class="btn" data-act="legacy">Importar datos de la versión anterior (este navegador)</button>' : ''}<button class="btn ghost danger" data-act="reset">Borrar todo</button></div>
-      <p class="muted">Importar un respaldo sube esos datos a tu cuenta. Las claves de la IA ya no se guardan aquí: viven en el servidor.</p></section>`;
+      <p class="muted">Importar un respaldo sube esos datos a tu cuenta.</p></section>`;
   }
 
   function render() {
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === ui.tab));
     renderHeader();
-    const v = !session ? viewLogin() : !ui.ready ? viewLoading() : { hoy: viewHoy, calendario: viewCalendario, posts: viewPosts, memoria: viewMemoria }[ui.tab]();
+    const v = !session ? viewLogin() : !ui.ready ? viewLoading() : { hoy: viewHoy, calendario: viewCalendario, posts: viewPosts, memoria: viewMemoria, guia: viewGuia }[ui.tab]();
     // Conserva el texto que está escribiendo si se re-renderiza.
     const draft = $('#txt') ? $('#txt').value : '';
     $('#view').innerHTML = v;
@@ -402,7 +441,7 @@
     if (cap) cap.texto += '\n\n' + extra;
     toast('Regenerando con tu respuesta…');
     const r = await AI.generatePost(S, cap ? cap.texto : extra, p.tipo);
-    applyResult(p, r); const nm = autoMemory(p); save(); render(); toast('Post actualizado.' + (nm ? ' Guardé ' + nm + ' dato(s) en tu memoria.' : ''));
+    snapshot(p, 'Antes de mejorar'); applyResult(p, r); const nm = autoMemory(p); save(); render(); toast('Post actualizado. La versión anterior quedó guardada.' + (nm ? ' Guardé ' + nm + ' dato(s) en tu memoria.' : ''));
   }
 
   // ---------- Dictado ----------
@@ -423,20 +462,21 @@
   const post = (id) => S.posts.find((p) => p.id === id);
   document.addEventListener('click', async (e) => {
     const el = e.target.closest('[data-act],[data-tab]'); if (!el) return;
+    if (el.tagName === 'A') e.preventDefault();
     if (el.dataset.tab) return go(el.dataset.tab);
     const a = el.dataset.act, id = el.dataset.id, p = id && post(id);
     try {
       if (a === 'login') return login();
       if (a === 'logout') return logout();
       if (a === 'retryload') return bootstrap();
-      if (a === 'syncnow') { await doSync(); return toast(ui.sync === 'ok' ? 'Guardado en Google Sheets.' : 'No se pudo guardar.'); }
+      if (a === 'syncnow') { await doSync(); return toast(ui.sync === 'ok' ? 'Guardado.' : 'No se pudo guardar.'); }
       if (a === 'legacy') return importJson(localStorage.getItem(LEGACY), 'Datos anteriores importados.');
       if (a === 'generate') return generate();
       if (a === 'dictate') return dictate();
       if (a === 'copy') return copy(p.hook + '\n\n' + p.cuerpo);
       if (a === 'publish') { p.estado = 'publicado'; p.fechaPub = today(); save(); return render(); }
       if (a === 'del') { if (confirm('¿Eliminar este post?')) { S.posts = S.posts.filter((x) => x.id !== id); save(); render(); } return; }
-      if (a === 'hook') { toast('Buscando otro hook…'); const r = await AI.newHook(S, p); p.hook = r.hook; p.patronHook = r.patron_hook; save(); return render(); }
+      if (a === 'hook') { toast('Buscando otro hook…'); const r = await AI.newHook(S, p); snapshot(p, 'Hook anterior'); p.hook = r.hook; p.patronHook = r.patron_hook; save(); return render(); }
       if (a === 'answer') {
         const card = el.closest('.post'), parts = [];
         (p.pendientes || []).forEach((q) => { const inp = card.querySelector('[data-q="' + q.id + '"]'); const v = inp && inp.value.trim(); if (v) parts.push('[Respuesta a "' + q.pregunta + '"]: ' + v); });
@@ -452,6 +492,25 @@
         finally { el.disabled = false; render(); }
         return;
       }
+      if (a === 'calsave') {
+        const card = el.closest('.post'); let v = card.querySelector('[data-dateinput]').value; const auto = !v; if (!v) v = nextFreeSlot();
+        p.fechaPlan = v; save();
+        card.querySelector('.calsave').outerHTML = calBlock(p); card.querySelector('.badges').outerHTML = badgesHtml(p);
+        return toast('Guardado en el calendario: ' + v + (auto ? ' (próximo día libre de tu cadencia).' : '.'));
+      }
+      if (a === 'calclear') { const card = el.closest('.post'); p.fechaPlan = ''; save(); card.querySelector('.calsave').outerHTML = calBlock(p); card.querySelector('.badges').outerHTML = badgesHtml(p); return toast('Quitado del calendario.'); }
+      if (a === 'gocal') { showDateInCalendar(p.fechaPlan); return go('calendario'); }
+      if (a === 'restore') {
+        const v = (p.versiones || [])[+el.dataset.i]; if (!v) return;
+        snapshot(p, 'Antes de restaurar'); p.hook = v.hook; p.cuerpo = v.cuerpo; p.patronHook = v.patronHook; if (p.estado === 'borrador') p.estado = 'editado';
+        save(); render(); return toast('Versión restaurada. La que tenías quedó guardada por si quieres volver.');
+      }
+      if (a === 'showpost') { ui.lastPostId = id; return render(); }
+      if (a === 'addaud') {
+        const n = $('#audN').value.trim(); if (!n) return toast('Escribe un nombre para el público.');
+        S.audiences.push({ nombre: n, busca: $('#audB').value.trim(), evitar: $('#audE').value.trim() }); save(); return render();
+      }
+      if (a === 'delaud') { S.audiences.splice(+el.dataset.i, 1); save(); return render(); }
       if (a === 'skipq') { (p.pendientes || []).forEach((q) => { q.resuelto = true; }); save(); return render(); }
       if (a === 'fb') { const i = $(`[data-fb="${id}"]`), v = i.value.trim(); if (!v) return; S.feedback.push({ id: uid(), fecha: today(), texto: `(${p.formato}) ${v}` }); p.estado = p.estado === 'borrador' ? 'editado' : p.estado; i.value = ''; save(); return toast('Guardado. No repetiré ese error.'); }
       if (a === 'open') return go('posts', id);
@@ -473,6 +532,12 @@
     if (t.dataset.act === 'filtro') { ui.filtro = t.value; return render(); }
     if (t.id === 'aud') { const f = t.files[0]; if (!f) return; setStatus('Transcribiendo audio…'); AI.transcribe(S, f).then((txt) => { const box = $('#txt'); box.value += (box.value ? '\n' : '') + txt; setStatus(''); }).catch((er) => { setStatus(''); handleErr(er); }); return; }
     if (t.id === 'imp') { const f = t.files[0]; if (!f) return; f.text().then((s) => importJson(s, 'Respaldo importado y guardado en tu cuenta.')); return; }
+    if (t.dataset.audcat !== undefined) {
+      const c = KB.catalogoAudiencias[+t.dataset.audcat];
+      if (t.checked) { if (!S.audiences.some((a) => a.nombre === c.nombre)) S.audiences.push({ ...c }); } else S.audiences = S.audiences.filter((a) => a.nombre !== c.nombre);
+      save(); return render();
+    }
+    if (t.dataset.dateinput !== undefined) return;   // la fecha solo se guarda con el botón
     const card = t.closest('.post');
     if (card && t.dataset.f) { const p = post(card.dataset.id); p[t.dataset.f] = t.value; if (['hook', 'cuerpo'].includes(t.dataset.f) && p.estado === 'borrador' && (p.hook + '\n\n' + p.cuerpo) !== p.original) p.estado = 'editado'; save(); if (['estado', 'fechaPlan', 'formato'].includes(t.dataset.f)) render(); return; }
     if (t.dataset.p) { S.profile[t.dataset.p] = t.value; return save(); }

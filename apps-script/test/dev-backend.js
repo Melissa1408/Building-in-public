@@ -8,7 +8,7 @@ const MAIL_FILE = path.join(os.tmpdir(), 'bip-ultimo-correo.html');
 let mailsSeen = 0;
 rt.setup();
 // Usuarios manuales opcionales (DEV_USERS). Cualquier otro correo se auto-registra como prueba (2 usos).
-(process.env.DEV_USERS || '').split(',').filter(Boolean).forEach((e) => rt.addUser(e.trim(), 'Manual'));
+(process.env.DEV_USERS || '').split(',').filter(Boolean).forEach((e) => rt.addUser(e.trim(), 'Manual', 'SI', '20'));
 rt.setAi(() => ({ code: 200, body: { content: [{ type: 'text', text: JSON.stringify({
   formato: 'Honest Tradeoff', porque: 'Eligió entre dos opciones con costos claros.', problema: 'Elegir una herramienta', publico: 'Desarrolladores senior / Tech Leads',
   tipo: 'Decisión', patron_hook: 'Contraste antes/después', hook: 'Elegí rápido y me costó una tarde.', cuerpo: 'Cuerpo de ejemplo del post.',

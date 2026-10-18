@@ -38,8 +38,20 @@ const defaults = {
   ]
 };
 
+// Públicos que la persona puede marcar en Memoria → Público (neutros, sin industria). Los 4 primeros son el valor inicial.
+const catalogoAudiencias = [
+  { nombre: 'Colegas de tu industria', busca: 'Aprender de un caso real y ver que otros también se bloquean', evitar: 'Condescendencia; explicar lo básico' },
+  { nombre: 'Personas que están aprendiendo lo mismo', busca: 'Pasos concretos y errores que pueden evitar', evitar: 'Jerga sin explicar' },
+  { nombre: 'Quienes contratan o lideran equipos', busca: 'Ver criterio y cómo piensas tus decisiones', evitar: 'Solo lista de tareas; mostrar el porqué' },
+  { nombre: 'Clientes o aliados potenciales', busca: 'Evidencia de que entiendes su problema', evitar: 'Vender; mostrar el proceso' },
+  { nombre: 'Emprendedores y fundadores', busca: 'Decisiones con números reales, trade-offs y lecciones de negocio', evitar: 'Frases motivacionales sin datos' },
+  { nombre: 'Personas técnicas (desarrollo, datos, producto)', busca: 'Profundidad, detalles de cómo lo resolviste y por qué', evitar: 'Simplificar en exceso' },
+  { nombre: 'Reclutadores', busca: 'Evidencia de habilidades y de cómo comunicas', evitar: 'Un CV en prosa; mostrar un proyecto vivo' },
+  { nombre: 'Mentores y referentes de tu campo', busca: 'Ver tu razonamiento y tu capacidad de aprender', evitar: 'Pedir validación; mostrar qué probaste' }
+];
+
 const out = `// ARCHIVO GENERADO por tools/build-knowledge.js. No editar a mano: edita /skill y vuelve a generar.
-window.KB = ${JSON.stringify({ skillMd, formatsMd, hooksMd, formatos, patrones, defaults }, null, 2)};
+window.KB = ${JSON.stringify({ skillMd, formatsMd, hooksMd, formatos, patrones, defaults, catalogoAudiencias }, null, 2)};
 `;
 fs.writeFileSync(path.join(root, 'js/knowledge.js'), out);
 console.log('OK', formatos.length, 'formatos,', patrones.length, 'patrones de hook');

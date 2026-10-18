@@ -61,3 +61,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px}
 .limit{border-color:var(--warn)}
 .limit a{font-weight:600}
 .mail{border-color:var(--ac)}
+.grid3e{display:grid;grid-template-columns:repeat(3,1fr);gap:0 10px}
+.calsave{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;margin:8px 0;padding:10px 12px;border:1px dashed var(--bd);border-radius:10px}
+.calsave label{margin:0}.calsave input{width:auto}.okmsg{color:var(--ok);font-size:13px}.okmsg a{color:var(--ac);cursor:pointer}
+.vers .ver{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)}
+.postnav{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0 10px}
+.receta{margin:8px 0}.receta[open]{background:var(--bg);border-radius:10px;padding:8px 12px}
+.chk{display:flex;gap:10px;align-items:flex-start;color:var(--tx);font-size:14px;margin:8px 0;cursor:pointer}.chk input{width:auto;margin-top:3px}
+.audrow{display:grid;grid-template-columns:1.2fr 1.5fr 1.5fr auto;gap:8px;margin:6px 0;align-items:center}
+.guia{max-width:720px}.guia h3{margin:22px 0 6px}.guia blockquote{margin:10px 0;padding:6px 14px;border-left:4px solid var(--ac);background:var(--card);border-radius:0 8px 8px 0}
+.guia-t{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}.guia-t th,.guia-t td{border:1px solid var(--bd);padding:8px 10px;text-align:left;vertical-align:top}.guia-t th{background:var(--card)}
+@media (max-width:700px){.grid3e{grid-template-columns:1fr}.audrow{grid-template-columns:1fr}}
