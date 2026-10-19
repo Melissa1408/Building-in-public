@@ -187,12 +187,15 @@ function userInfo_(user) { return { email: user.email, nombre: user.nombre, tria
 function login_(req) {
   var email = canonEmail_(req.email);
   if (!validEmail_(email)) throw fail_('invalid', 'Escribe un correo válido.');
+  // solo = 'manual': para paneles privados (p. ej. el de una clienta). No auto-registra ni admite cuentas de prueba.
+  var onlyManual = String(req.solo || '') === 'manual';
+  var denied = fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
   var user = findUser_(email);
   if (!user) {
-    if (prop_('AUTO_REGISTER', 'SI').toUpperCase() === 'NO') throw fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
+    if (onlyManual || prop_('AUTO_REGISTER', 'SI').toUpperCase() === 'NO') throw denied;
     user = registerTrial_(email);
   }
-  if (!user.activo) throw fail_('denied', 'Ese correo no tiene acceso. Pide que lo agreguen a la lista.');
+  if (!user.activo || (onlyManual && user.trial)) throw denied;
   if (user.codigo && String(req.codigo || '').trim() !== user.codigo) throw fail_('code', 'El código de acceso no es correcto.');
   return { ok: true, token: makeToken_(email), user: userInfo_(user), usage: usageInfo_(user), contact: contactInfo_() };
 }

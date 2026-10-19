@@ -262,4 +262,15 @@ t('contacto: el servidor entrega CONTACT_TEXT/URL (solo https) para el aviso de 
   assert.strictEqual(login(auto({ CONTACT_URL: 'javascript:alert(1)' }), 'w@x.com').contact.url, '');
 });
 
+t('login solo=manual: no auto-registra, no admite cuentas de prueba y sí a las manuales (con su código)', () => {
+  const rt = auto(); const solo = (email, codigo) => rt.post({ action: 'login', email, codigo, solo: 'manual' });
+  const before = userRows(rt).length;
+  assert.strictEqual(solo('desconocido@x.com').code, 'denied'); assert.strictEqual(userRows(rt).length, before, 'no crea usuario');
+  const trial = login(rt, 'visita@x.com'); assert.ok(trial.ok && trial.user.trial);
+  assert.strictEqual(solo('visita@x.com').code, 'denied', 'una cuenta de prueba no entra al panel privado');
+  assert.strictEqual(solo('secreto@example.com', 'mal').code, 'code'); assert.ok(solo('secreto@example.com', '1234').ok);
+  assert.ok(solo('ana@example.com').ok && solo('ana@example.com').user.trial === false);
+  assert.strictEqual(solo('inactivo@example.com').code, 'denied');
+});
+
 console.log('\n' + n + ' pruebas OK');

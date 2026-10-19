@@ -9,10 +9,22 @@ let mailsSeen = 0;
 rt.setup();
 // Usuarios manuales opcionales (DEV_USERS). Cualquier otro correo se auto-registra como prueba (2 usos).
 (process.env.DEV_USERS || '').split(',').filter(Boolean).forEach((e) => rt.addUser(e.trim(), 'Manual', 'SI', '20'));
-rt.setAi(() => ({ code: 200, body: { content: [{ type: 'text', text: JSON.stringify({
+const postJson = {
   formato: 'Honest Tradeoff', porque: 'Eligió entre dos opciones con costos claros.', problema: 'Elegir una herramienta', publico: 'Desarrolladores senior / Tech Leads',
   tipo: 'Decisión', patron_hook: 'Contraste antes/después', hook: 'Elegí rápido y me costó una tarde.', cuerpo: 'Cuerpo de ejemplo del post.',
-  completo: false, pendientes: [{ dato: 'Qué perdió', pregunta: '¿Qué perdiste al elegir esa herramienta?' }, { dato: 'Resultado', pregunta: '¿Qué resultado tuviste?' }], memoria: ['Dato de ejemplo aprendido'] }) }] } }));
+  completo: false, pendientes: [{ dato: 'Qué perdió', pregunta: '¿Qué perdiste al elegir esa herramienta?' }, { dato: 'Resultado', pregunta: '¿Qué resultado tuviste?' }], memoria: ['Dato de ejemplo aprendido'],
+  analisis: { objetivo: 'Mostrar proceso', temas: ['Elegir herramientas'], dificultades: ['Decidir con poco tiempo'], herramientas: ['Python'], tecnicismos: ['Backtest'],
+    avatares: [{ nombre: 'Desarrolladores junior/intermedios', peso: 50 }, { nombre: 'Reclutadores del sector', peso: 50 }] }
+};
+let n = 0;
+rt.setAi((url, o) => {
+  const b = JSON.parse(o.payload), ok = (obj) => ({ code: 200, body: { content: [{ type: 'text', text: JSON.stringify(obj) }] } });
+  if (/analista de contenido/.test(b.system)) {   // lote de análisis de historial
+    const ids = [...b.messages[0].content.matchAll(/^ID: (\S+)/gm)].map((m) => m[1]);
+    return ok({ analisis: ids.map((id) => ({ id, objetivo: 'Educar', temas: ['Tema de prueba'], dificultades: ['Dificultad de prueba'], herramientas: ['Python'], tecnicismos: ['Backtest'], avatares: [{ nombre: 'Reclutadores del sector', peso: 60 }, { nombre: 'Desarrolladores senior / Tech Leads', peso: 40 }] })) });
+  }
+  n++; return ok(Object.assign({}, postJson, { hook: 'Hook de prueba ' + n, analisis: Object.assign({}, postJson.analisis, { temas: [n % 2 ? 'Elegir herramientas' : 'Backtesting'], objetivo: n % 2 ? 'Mostrar proceso' : 'Educar' }) }));
+});
 http.createServer((req, res) => {
   const h = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'content-type': 'application/json' };
   if (req.method === 'OPTIONS') { res.writeHead(204, h); return res.end(); }
